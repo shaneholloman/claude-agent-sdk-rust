@@ -247,6 +247,7 @@ pub use error::{Error, Result};
 pub use models::{BedrockRegion, Model};
 pub use streaming::{ContentDelta, MessageDelta, StreamEvent};
 pub use types::{
-    ContentBlock, EffortLevel, Message, MessagesRequest, MessagesResponse, OutputConfig, Role,
-    StopReason, Tool, ToolChoice, Usage,
+    CacheTtl, ContentBlock, EffortLevel, Message, MessagesRequest, MessagesResponse, Metadata,
+    OutputConfig, OutputTokensDetails, RateLimitInfo, RefusalCategory, Role, ServerToolUsage,
+    ServiceTier, StopDetails, StopReason, Tool, ToolChoice, Usage,
 };

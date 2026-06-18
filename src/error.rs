@@ -116,10 +116,9 @@
 //! );
 //!
 //! let config = RetryConfig::default()
-//!     .with_max_retries(3)
-//!     .with_initial_delay_ms(1000);
+//!     .with_max_attempts(3);
 //!
-//! let response = client.send_message_with_retry(request, &config).await?;
+//! let response = client.send_message_with_retry(request, config).await?;
 //! # Ok(())
 //! # }
 //! ```
