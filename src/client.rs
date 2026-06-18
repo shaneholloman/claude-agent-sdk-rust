@@ -2,7 +2,7 @@
 
 use crate::error::{ApiErrorResponse, Error, Result};
 use crate::streaming::StreamEvent;
-use crate::types::{MessagesRequest, MessagesResponse};
+use crate::types::{MessagesRequest, MessagesResponse, RateLimitInfo};
 use eventsource_stream::Eventsource;
 use futures::{Stream, StreamExt, TryStreamExt};
 use reqwest::{Client, StatusCode};
@@ -65,6 +65,27 @@ pub struct ClaudeClient {
     http: Client,
     backend: ClaudeBackend,
     api_version: String,
+}
+
+fn parse_rate_limit_headers(headers: &reqwest::header::HeaderMap) -> RateLimitInfo {
+    RateLimitInfo {
+        requests_remaining: headers
+            .get("anthropic-ratelimit-requests-remaining")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.parse().ok()),
+        tokens_remaining: headers
+            .get("anthropic-ratelimit-tokens-remaining")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.parse().ok()),
+        requests_reset: headers
+            .get("anthropic-ratelimit-requests-reset")
+            .and_then(|v| v.to_str().ok())
+            .map(String::from),
+        tokens_reset: headers
+            .get("anthropic-ratelimit-tokens-reset")
+            .and_then(|v| v.to_str().ok())
+            .map(String::from),
+    }
 }
 
 impl ClaudeClient {
@@ -191,7 +212,9 @@ impl ClaudeClient {
         // Handle different status codes
         match status {
             StatusCode::OK => {
-                let messages_response: MessagesResponse = response.json().await?;
+                let headers = response.headers().clone();
+                let mut messages_response: MessagesResponse = response.json().await?;
+                messages_response.rate_limit_info = Some(parse_rate_limit_headers(&headers));
                 Ok(messages_response)
             }
             StatusCode::TOO_MANY_REQUESTS => {
@@ -608,6 +631,43 @@ impl ClaudeClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_parse_rate_limit_headers() {
+        use reqwest::header::{HeaderMap, HeaderValue};
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "anthropic-ratelimit-requests-remaining",
+            HeaderValue::from_static("95"),
+        );
+        headers.insert(
+            "anthropic-ratelimit-tokens-remaining",
+            HeaderValue::from_static("49000"),
+        );
+        headers.insert(
+            "anthropic-ratelimit-requests-reset",
+            HeaderValue::from_static("2025-01-01T00:01:00Z"),
+        );
+        headers.insert(
+            "anthropic-ratelimit-tokens-reset",
+            HeaderValue::from_static("2025-01-01T00:01:00Z"),
+        );
+
+        let info = parse_rate_limit_headers(&headers);
+        assert_eq!(info.requests_remaining, Some(95));
+        assert_eq!(info.tokens_remaining, Some(49000));
+        assert_eq!(info.requests_reset.as_deref(), Some("2025-01-01T00:01:00Z"));
+        assert_eq!(info.tokens_reset.as_deref(), Some("2025-01-01T00:01:00Z"));
+    }
+
+    #[test]
+    fn test_parse_rate_limit_headers_empty() {
+        let headers = reqwest::header::HeaderMap::new();
+        let info = parse_rate_limit_headers(&headers);
+        assert!(info.requests_remaining.is_none());
+        assert!(info.tokens_remaining.is_none());
+    }
 
     #[test]
     fn test_client_creation_anthropic() {

@@ -876,6 +876,26 @@ pub struct MessagesResponse {
     pub stop_details: Option<StopDetails>,
 
     pub usage: Usage,
+
+    /// Rate limit info from response headers (not part of JSON body)
+    #[serde(skip)]
+    pub rate_limit_info: Option<RateLimitInfo>,
+}
+
+/// Rate limit information from API response headers
+///
+/// The API returns these headers with every response to help
+/// clients manage their request rate.
+#[derive(Debug, Clone, Default)]
+pub struct RateLimitInfo {
+    /// Remaining requests in current window
+    pub requests_remaining: Option<u32>,
+    /// Remaining tokens in current window
+    pub tokens_remaining: Option<u32>,
+    /// Time until request limit resets (ISO 8601)
+    pub requests_reset: Option<String>,
+    /// Time until token limit resets (ISO 8601)
+    pub tokens_reset: Option<String>,
 }
 
 #[cfg(test)]
@@ -1098,5 +1118,32 @@ mod tests {
         assert_eq!(usage.input_tokens, 10);
         assert!(usage.output_tokens_details.is_none());
         assert!(usage.server_tool_use.is_none());
+    }
+
+    // Task 8: RateLimitInfo tests
+
+    #[test]
+    fn test_rate_limit_info_default() {
+        let info = RateLimitInfo::default();
+        assert!(info.requests_remaining.is_none());
+        assert!(info.tokens_remaining.is_none());
+        assert!(info.requests_reset.is_none());
+        assert!(info.tokens_reset.is_none());
+    }
+
+    #[test]
+    fn test_response_deserialization_with_skipped_rate_limit() {
+        let json = r#"{
+            "id": "msg_123",
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "text", "text": "hello"}],
+            "model": "claude-sonnet-4-5-20250929",
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 10, "output_tokens": 5}
+        }"#;
+
+        let response: MessagesResponse = serde_json::from_str(json).unwrap();
+        assert!(response.rate_limit_info.is_none()); // Skipped in JSON
     }
 }
