@@ -414,6 +414,18 @@ pub struct MessagesRequest {
     /// Supported models: Sonnet 4.5, Haiku 4.5, Opus 4.5, and more.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thinking: Option<ThinkingConfig>,
+
+    /// Request metadata for abuse detection
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<Metadata>,
+
+    /// Service tier for request routing
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub service_tier: Option<ServiceTier>,
+
+    /// Geographic inference routing
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inference_geo: Option<String>,
 }
 
 /// Extended thinking configuration
@@ -457,6 +469,27 @@ pub enum EffortLevel {
     Medium,
     /// Maximum token efficiency
     Low,
+    /// Extra-high effort
+    #[serde(rename = "xhigh")]
+    XHigh,
+    /// Maximum effort
+    Max,
+}
+
+/// Request metadata for abuse detection
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Metadata {
+    /// Opaque user identifier (uuid or hash, no PII)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_id: Option<String>,
+}
+
+/// Service tier for request routing
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ServiceTier {
+    Auto,
+    StandardOnly,
 }
 
 impl MessagesRequest {
@@ -489,6 +522,9 @@ impl MessagesRequest {
             stream: None,
             output_config: None,
             thinking: None,
+            metadata: None,
+            service_tier: None,
+            inference_geo: None,
         }
     }
 
@@ -694,6 +730,24 @@ impl MessagesRequest {
         self.thinking = Some(ThinkingConfig::Enabled { budget_tokens });
         self
     }
+
+    /// Set request metadata for abuse detection.
+    pub fn with_metadata(mut self, metadata: Metadata) -> Self {
+        self.metadata = Some(metadata);
+        self
+    }
+
+    /// Set the service tier for request routing.
+    pub fn with_service_tier(mut self, tier: ServiceTier) -> Self {
+        self.service_tier = Some(tier);
+        self
+    }
+
+    /// Set the geographic inference routing.
+    pub fn with_inference_geo(mut self, geo: impl Into<String>) -> Self {
+        self.inference_geo = Some(geo.into());
+        self
+    }
 }
 
 /// Stop reason for a message
@@ -713,6 +767,30 @@ pub enum StopReason {
     /// Continue by sending the response content back in the next request.
     /// Used with server tools like web search.
     PauseTurn,
+    /// Model refused the request
+    Refusal,
+}
+
+/// Details about why the model stopped (currently only for refusals)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StopDetails {
+    #[serde(rename = "type")]
+    pub stop_type: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub category: Option<RefusalCategory>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub explanation: Option<String>,
+}
+
+/// Category of content refusal
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RefusalCategory {
+    Cyber,
+    Bio,
+    ReasoningExtraction,
 }
 
 /// Response from creating a message
@@ -734,6 +812,9 @@ pub struct MessagesResponse {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop_sequence: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stop_details: Option<StopDetails>,
 
     pub usage: Usage,
 }
@@ -832,5 +913,67 @@ mod tests {
         assert_eq!(request.messages.len(), 1);
         assert!(request.system.is_some());
         assert_eq!(request.temperature, Some(0.7));
+    }
+
+    #[test]
+    fn test_metadata_serialization() {
+        let request = MessagesRequest::new(
+            "claude-sonnet-4-5-20250929",
+            1024,
+            vec![Message::user("Hello")],
+        )
+        .with_metadata(Metadata { user_id: Some("user-abc-123".into()) });
+
+        let json = serde_json::to_value(&request).unwrap();
+        assert_eq!(json["metadata"]["user_id"], "user-abc-123");
+    }
+
+    #[test]
+    fn test_service_tier_serialization() {
+        let json = serde_json::to_string(&ServiceTier::StandardOnly).unwrap();
+        assert_eq!(json, r#""standard_only""#);
+
+        let json = serde_json::to_string(&ServiceTier::Auto).unwrap();
+        assert_eq!(json, r#""auto""#);
+    }
+
+    #[test]
+    fn test_refusal_stop_reason_deserialization() {
+        let json = r#"{
+            "id": "msg_123",
+            "type": "message",
+            "role": "assistant",
+            "content": [],
+            "model": "claude-sonnet-4-5-20250929",
+            "stop_reason": "refusal",
+            "stop_details": {
+                "type": "refusal",
+                "category": "cyber",
+                "explanation": "Request involves prohibited content"
+            },
+            "usage": { "input_tokens": 10, "output_tokens": 0 }
+        }"#;
+
+        let response: MessagesResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(response.stop_reason, Some(StopReason::Refusal));
+        let details = response.stop_details.as_ref().unwrap();
+        assert_eq!(details.category, Some(RefusalCategory::Cyber));
+        assert_eq!(details.explanation.as_deref(), Some("Request involves prohibited content"));
+    }
+
+    #[test]
+    fn test_effort_xhigh_and_max() {
+        let json_xhigh = serde_json::to_string(&EffortLevel::XHigh).unwrap();
+        assert_eq!(json_xhigh, r#""xhigh""#);
+
+        let json_max = serde_json::to_string(&EffortLevel::Max).unwrap();
+        assert_eq!(json_max, r#""max""#);
+
+        // Round-trip
+        let parsed: EffortLevel = serde_json::from_str(r#""xhigh""#).unwrap();
+        assert_eq!(parsed, EffortLevel::XHigh);
+
+        let parsed: EffortLevel = serde_json::from_str(r#""max""#).unwrap();
+        assert_eq!(parsed, EffortLevel::Max);
     }
 }
