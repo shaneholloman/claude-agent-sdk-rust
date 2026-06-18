@@ -140,6 +140,7 @@ impl TokenCounter {
 
                 total
             }
+            ContentBlock::Unknown { .. } => 0,
         }
     }
 

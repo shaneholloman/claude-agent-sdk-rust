@@ -36,7 +36,11 @@ pub enum Role {
 }
 
 /// Content block in a message
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// Known content block types are deserialized into their respective variants.
+/// Unrecognized types (e.g., new API features) are captured in [`ContentBlock::Unknown`]
+/// instead of causing a deserialization error.
+#[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ContentBlock {
     /// Text content
@@ -110,6 +114,168 @@ pub enum ContentBlock {
         #[serde(skip_serializing_if = "Option::is_none")]
         cache_control: Option<CacheControl>,
     },
+    /// Unknown content block type (forward compatibility)
+    ///
+    /// When the API returns a content block type this SDK doesn't
+    /// recognize, it's captured here rather than causing a deserialization error.
+    #[serde(untagged)]
+    Unknown {
+        /// The `type` field value
+        block_type: String,
+        /// Raw JSON of the unknown block
+        data: serde_json::Value,
+    },
+}
+
+/// Private helper enum for deserialization of known ContentBlock variants.
+///
+/// Mirrors all known variants of [`ContentBlock`] exactly, with derived
+/// `Deserialize`. Used by the custom `Deserialize` impl on `ContentBlock` to
+/// avoid infinite recursion (since `ContentBlock` can't derive `Deserialize`
+/// due to the `Unknown` catch-all variant needing to capture raw JSON data).
+#[derive(Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum ContentBlockHelper {
+    Text {
+        text: String,
+        cache_control: Option<CacheControl>,
+        citations: Option<Vec<Citation>>,
+    },
+    Image {
+        source: ImageSource,
+        cache_control: Option<CacheControl>,
+    },
+    Document {
+        source: DocumentSource,
+        title: Option<String>,
+        context: Option<String>,
+        citations: Option<CitationConfig>,
+        cache_control: Option<CacheControl>,
+    },
+    ToolUse {
+        id: String,
+        name: String,
+        input: serde_json::Value,
+        cache_control: Option<CacheControl>,
+    },
+    ToolResult {
+        tool_use_id: String,
+        content: Option<String>,
+        is_error: Option<bool>,
+    },
+    Thinking {
+        thinking: String,
+        signature: Option<String>,
+    },
+    RedactedThinking {
+        data: String,
+    },
+    SearchResult {
+        source: String,
+        title: String,
+        content: Vec<TextBlock>,
+        citations: Option<CitationConfig>,
+        cache_control: Option<CacheControl>,
+    },
+}
+
+impl<'de> serde::Deserialize<'de> for ContentBlock {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = serde_json::Value::deserialize(deserializer)?;
+
+        // Try to deserialize as a known variant via the helper enum
+        match serde_json::from_value::<ContentBlockHelper>(value.clone()) {
+            Ok(helper) => Ok(match helper {
+                ContentBlockHelper::Text {
+                    text,
+                    cache_control,
+                    citations,
+                } => ContentBlock::Text {
+                    text,
+                    cache_control,
+                    citations,
+                },
+                ContentBlockHelper::Image {
+                    source,
+                    cache_control,
+                } => ContentBlock::Image {
+                    source,
+                    cache_control,
+                },
+                ContentBlockHelper::Document {
+                    source,
+                    title,
+                    context,
+                    citations,
+                    cache_control,
+                } => ContentBlock::Document {
+                    source,
+                    title,
+                    context,
+                    citations,
+                    cache_control,
+                },
+                ContentBlockHelper::ToolUse {
+                    id,
+                    name,
+                    input,
+                    cache_control,
+                } => ContentBlock::ToolUse {
+                    id,
+                    name,
+                    input,
+                    cache_control,
+                },
+                ContentBlockHelper::ToolResult {
+                    tool_use_id,
+                    content,
+                    is_error,
+                } => ContentBlock::ToolResult {
+                    tool_use_id,
+                    content,
+                    is_error,
+                },
+                ContentBlockHelper::Thinking {
+                    thinking,
+                    signature,
+                } => ContentBlock::Thinking {
+                    thinking,
+                    signature,
+                },
+                ContentBlockHelper::RedactedThinking { data } => {
+                    ContentBlock::RedactedThinking { data }
+                }
+                ContentBlockHelper::SearchResult {
+                    source,
+                    title,
+                    content,
+                    citations,
+                    cache_control,
+                } => ContentBlock::SearchResult {
+                    source,
+                    title,
+                    content,
+                    citations,
+                    cache_control,
+                },
+            }),
+            Err(_) => {
+                // Unknown type -- extract the type field and capture the raw data
+                let block_type = value
+                    .get("type")
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+                Ok(ContentBlock::Unknown {
+                    block_type,
+                    data: value,
+                })
+            }
+        }
+    }
 }
 
 /// Text block for search result content
@@ -1145,5 +1311,90 @@ mod tests {
 
         let response: MessagesResponse = serde_json::from_str(json).unwrap();
         assert!(response.rate_limit_info.is_none()); // Skipped in JSON
+    }
+
+    // Task 7: ContentBlock::Unknown forward-compatible deserialization tests
+
+    #[test]
+    fn test_unknown_content_block_deserializes() {
+        let json = r#"{"type": "server_tool_use", "id": "stu_123", "name": "web_search", "input": {}}"#;
+        let block: ContentBlock = serde_json::from_str(json).unwrap();
+        match block {
+            ContentBlock::Unknown { block_type, data } => {
+                assert_eq!(block_type, "server_tool_use");
+                assert_eq!(data["name"], "web_search");
+                assert_eq!(data["id"], "stu_123");
+            }
+            _ => panic!("Expected Unknown variant"),
+        }
+    }
+
+    #[test]
+    fn test_known_content_blocks_still_work() {
+        let json = r#"{"type": "text", "text": "hello"}"#;
+        let block: ContentBlock = serde_json::from_str(json).unwrap();
+        match block {
+            ContentBlock::Text { text, .. } => assert_eq!(text, "hello"),
+            _ => panic!("Expected Text variant"),
+        }
+    }
+
+    #[test]
+    fn test_content_block_roundtrip() {
+        let original = ContentBlock::Text {
+            text: "test".into(),
+            cache_control: None,
+            citations: None,
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        let deserialized: ContentBlock = serde_json::from_str(&json).unwrap();
+        match deserialized {
+            ContentBlock::Text { text, .. } => assert_eq!(text, "test"),
+            _ => panic!("Expected Text variant after roundtrip"),
+        }
+    }
+
+    #[test]
+    fn test_unknown_block_in_response() {
+        let json = r#"{
+            "id": "msg_123",
+            "type": "message",
+            "role": "assistant",
+            "content": [
+                {"type": "text", "text": "hello"},
+                {"type": "server_tool_use", "id": "stu_1", "name": "web_search", "input": {}}
+            ],
+            "model": "claude-sonnet-4-5-20250929",
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 10, "output_tokens": 5}
+        }"#;
+
+        let response: MessagesResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(response.content.len(), 2);
+        match &response.content[0] {
+            ContentBlock::Text { text, .. } => assert_eq!(text, "hello"),
+            _ => panic!("Expected Text variant"),
+        }
+        match &response.content[1] {
+            ContentBlock::Unknown { block_type, .. } => {
+                assert_eq!(block_type, "server_tool_use");
+            }
+            _ => panic!("Expected Unknown variant"),
+        }
+    }
+
+    #[test]
+    fn test_unknown_block_without_type_field() {
+        // Edge case: a JSON object with no "type" field should fail for the helper
+        // and fall through to Unknown with "unknown" as block_type
+        let json = r#"{"foo": "bar"}"#;
+        let block: ContentBlock = serde_json::from_str(json).unwrap();
+        match block {
+            ContentBlock::Unknown { block_type, data } => {
+                assert_eq!(block_type, "unknown");
+                assert_eq!(data["foo"], "bar");
+            }
+            _ => panic!("Expected Unknown variant"),
+        }
     }
 }
