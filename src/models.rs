@@ -418,14 +418,15 @@ pub const CLAUDE_OPUS_4_5: Model = Model {
 /// Claude Sonnet 4.6 (placeholder date: 2026-01-15)
 ///
 /// Best balance of speed and intelligence.
+// TODO: verify version date, IDs, and pricing from API
 pub const CLAUDE_SONNET_4_6: Model = Model {
     name: "Claude Sonnet 4.6",
     family: "sonnet",
-    version: "2026-01-15", // TODO: verify from API
-    anthropic_id: "claude-sonnet-4-6-20260115", // TODO: verify from API
-    bedrock_id: Some("anthropic.claude-sonnet-4-6-20260115-v1:0"), // TODO: verify from API
-    bedrock_global_id: Some("global.anthropic.claude-sonnet-4-6-20260115-v1:0"), // TODO: verify from API
-    vertex_id: Some("claude-sonnet-4-6@20260115"), // TODO: verify from API
+    version: "2026-01-15",
+    anthropic_id: "claude-sonnet-4-6-20260115",
+    bedrock_id: Some("anthropic.claude-sonnet-4-6-20260115-v1:0"),
+    bedrock_global_id: Some("global.anthropic.claude-sonnet-4-6-20260115-v1:0"),
+    vertex_id: Some("claude-sonnet-4-6@20260115"),
     max_context_tokens: 200_000,
     max_context_tokens_extended: Some(1_000_000),
     max_output_tokens: 64_000,
@@ -434,22 +435,23 @@ pub const CLAUDE_SONNET_4_6: Model = Model {
     supports_caching: true,
     supports_extended_thinking: true,
     supports_effort: false,
-    cost_per_mtok_input: 3.0,   // TODO: verify from API
-    cost_per_mtok_output: 15.0, // TODO: verify from API
+    cost_per_mtok_input: 3.0,
+    cost_per_mtok_output: 15.0,
     description: "Best balance of speed and intelligence",
 };
 
 /// Claude Opus 4.6 (placeholder date: 2026-02-01)
 ///
 /// Frontier intelligence for long-running agents and coding.
+// TODO: verify version date, IDs, and pricing from API
 pub const CLAUDE_OPUS_4_6: Model = Model {
     name: "Claude Opus 4.6",
     family: "opus",
-    version: "2026-02-01", // TODO: verify from API
-    anthropic_id: "claude-opus-4-6-20260201", // TODO: verify from API
-    bedrock_id: Some("anthropic.claude-opus-4-6-20260201-v1:0"), // TODO: verify from API
-    bedrock_global_id: Some("global.anthropic.claude-opus-4-6-20260201-v1:0"), // TODO: verify from API
-    vertex_id: Some("claude-opus-4-6@20260201"), // TODO: verify from API
+    version: "2026-02-01",
+    anthropic_id: "claude-opus-4-6-20260201",
+    bedrock_id: Some("anthropic.claude-opus-4-6-20260201-v1:0"),
+    bedrock_global_id: Some("global.anthropic.claude-opus-4-6-20260201-v1:0"),
+    vertex_id: Some("claude-opus-4-6@20260201"),
     max_context_tokens: 200_000,
     max_context_tokens_extended: None,
     max_output_tokens: 64_000,
@@ -458,22 +460,23 @@ pub const CLAUDE_OPUS_4_6: Model = Model {
     supports_caching: true,
     supports_extended_thinking: true,
     supports_effort: true,
-    cost_per_mtok_input: 5.0,   // TODO: verify from API
-    cost_per_mtok_output: 25.0, // TODO: verify from API
+    cost_per_mtok_input: 5.0,
+    cost_per_mtok_output: 25.0,
     description: "Frontier intelligence for long-running agents and coding",
 };
 
 /// Claude Opus 4.7 (placeholder date: 2026-03-01)
 ///
 /// Frontier intelligence for long-running agents and coding.
+// TODO: verify version date, IDs, and pricing from API
 pub const CLAUDE_OPUS_4_7: Model = Model {
     name: "Claude Opus 4.7",
     family: "opus",
-    version: "2026-03-01", // TODO: verify from API
-    anthropic_id: "claude-opus-4-7-20260301", // TODO: verify from API
-    bedrock_id: Some("anthropic.claude-opus-4-7-20260301-v1:0"), // TODO: verify from API
-    bedrock_global_id: Some("global.anthropic.claude-opus-4-7-20260301-v1:0"), // TODO: verify from API
-    vertex_id: Some("claude-opus-4-7@20260301"), // TODO: verify from API
+    version: "2026-03-01",
+    anthropic_id: "claude-opus-4-7-20260301",
+    bedrock_id: Some("anthropic.claude-opus-4-7-20260301-v1:0"),
+    bedrock_global_id: Some("global.anthropic.claude-opus-4-7-20260301-v1:0"),
+    vertex_id: Some("claude-opus-4-7@20260301"),
     max_context_tokens: 200_000,
     max_context_tokens_extended: None,
     max_output_tokens: 64_000,
@@ -482,22 +485,23 @@ pub const CLAUDE_OPUS_4_7: Model = Model {
     supports_caching: true,
     supports_extended_thinking: true,
     supports_effort: true,
-    cost_per_mtok_input: 5.0,   // TODO: verify from API
-    cost_per_mtok_output: 25.0, // TODO: verify from API
+    cost_per_mtok_input: 5.0,
+    cost_per_mtok_output: 25.0,
     description: "Frontier intelligence for long-running agents and coding",
 };
 
 /// Claude Opus 4.8 (placeholder date: 2026-04-01)
 ///
 /// Frontier intelligence for long-running agents and coding.
+// TODO: verify version date, IDs, and pricing from API
 pub const CLAUDE_OPUS_4_8: Model = Model {
     name: "Claude Opus 4.8",
     family: "opus",
-    version: "2026-04-01", // TODO: verify from API
-    anthropic_id: "claude-opus-4-8-20260401", // TODO: verify from API
-    bedrock_id: Some("anthropic.claude-opus-4-8-20260401-v1:0"), // TODO: verify from API
-    bedrock_global_id: Some("global.anthropic.claude-opus-4-8-20260401-v1:0"), // TODO: verify from API
-    vertex_id: Some("claude-opus-4-8@20260401"), // TODO: verify from API
+    version: "2026-04-01",
+    anthropic_id: "claude-opus-4-8-20260401",
+    bedrock_id: Some("anthropic.claude-opus-4-8-20260401-v1:0"),
+    bedrock_global_id: Some("global.anthropic.claude-opus-4-8-20260401-v1:0"),
+    vertex_id: Some("claude-opus-4-8@20260401"),
     max_context_tokens: 200_000,
     max_context_tokens_extended: None,
     max_output_tokens: 64_000,
@@ -506,8 +510,8 @@ pub const CLAUDE_OPUS_4_8: Model = Model {
     supports_caching: true,
     supports_extended_thinking: true,
     supports_effort: true,
-    cost_per_mtok_input: 5.0,   // TODO: verify from API
-    cost_per_mtok_output: 25.0, // TODO: verify from API
+    cost_per_mtok_input: 5.0,
+    cost_per_mtok_output: 25.0,
     description: "Frontier intelligence for long-running agents and coding",
 };
 
@@ -518,14 +522,15 @@ pub const CLAUDE_OPUS_4_8: Model = Model {
 /// Claude Fable 5 (placeholder date: 2026-06-01)
 ///
 /// Next generation model for the hardest knowledge work and coding.
+// TODO: verify version date, IDs, and pricing from API
 pub const CLAUDE_FABLE_5: Model = Model {
     name: "Claude Fable 5",
     family: "fable",
-    version: "2026-06-01", // TODO: verify from API
-    anthropic_id: "claude-fable-5-20260601", // TODO: verify from API
-    bedrock_id: Some("anthropic.claude-fable-5-20260601-v1:0"), // TODO: verify from API
-    bedrock_global_id: Some("global.anthropic.claude-fable-5-20260601-v1:0"), // TODO: verify from API
-    vertex_id: Some("claude-fable-5@20260601"), // TODO: verify from API
+    version: "2026-06-01",
+    anthropic_id: "claude-fable-5-20260601",
+    bedrock_id: Some("anthropic.claude-fable-5-20260601-v1:0"),
+    bedrock_global_id: Some("global.anthropic.claude-fable-5-20260601-v1:0"),
+    vertex_id: Some("claude-fable-5@20260601"),
     max_context_tokens: 200_000,
     max_context_tokens_extended: Some(1_000_000),
     max_output_tokens: 64_000,
@@ -534,22 +539,23 @@ pub const CLAUDE_FABLE_5: Model = Model {
     supports_caching: true,
     supports_extended_thinking: true,
     supports_effort: false,
-    cost_per_mtok_input: 3.0,   // TODO: verify from API
-    cost_per_mtok_output: 15.0, // TODO: verify from API
+    cost_per_mtok_input: 3.0,
+    cost_per_mtok_output: 15.0,
     description: "Next generation for hardest knowledge work and coding",
 };
 
 /// Claude Mythos 5 (placeholder date: 2026-06-15)
 ///
 /// Most capable model for cybersecurity and biology research.
+// TODO: verify version date, IDs, and pricing from API
 pub const CLAUDE_MYTHOS_5: Model = Model {
     name: "Claude Mythos 5",
     family: "mythos",
-    version: "2026-06-15", // TODO: verify from API
-    anthropic_id: "claude-mythos-5-20260615", // TODO: verify from API
-    bedrock_id: Some("anthropic.claude-mythos-5-20260615-v1:0"), // TODO: verify from API
-    bedrock_global_id: Some("global.anthropic.claude-mythos-5-20260615-v1:0"), // TODO: verify from API
-    vertex_id: Some("claude-mythos-5@20260615"), // TODO: verify from API
+    version: "2026-06-15",
+    anthropic_id: "claude-mythos-5-20260615",
+    bedrock_id: Some("anthropic.claude-mythos-5-20260615-v1:0"),
+    bedrock_global_id: Some("global.anthropic.claude-mythos-5-20260615-v1:0"),
+    vertex_id: Some("claude-mythos-5@20260615"),
     max_context_tokens: 200_000,
     max_context_tokens_extended: Some(1_000_000),
     max_output_tokens: 64_000,
@@ -558,8 +564,8 @@ pub const CLAUDE_MYTHOS_5: Model = Model {
     supports_caching: true,
     supports_extended_thinking: true,
     supports_effort: false,
-    cost_per_mtok_input: 5.0,   // TODO: verify from API
-    cost_per_mtok_output: 25.0, // TODO: verify from API
+    cost_per_mtok_input: 5.0,
+    cost_per_mtok_output: 25.0,
     description: "Most capable for cybersecurity and biology research",
 };
 

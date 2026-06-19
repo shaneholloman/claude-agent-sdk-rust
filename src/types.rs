@@ -1167,7 +1167,9 @@ mod tests {
             1024,
             vec![Message::user("Hello")],
         )
-        .with_metadata(Metadata { user_id: Some("user-abc-123".into()) });
+        .with_metadata(Metadata {
+            user_id: Some("user-abc-123".into()),
+        });
 
         let json = serde_json::to_value(&request).unwrap();
         assert_eq!(json["metadata"]["user_id"], "user-abc-123");
@@ -1203,7 +1205,10 @@ mod tests {
         assert_eq!(response.stop_reason, Some(StopReason::Refusal));
         let details = response.stop_details.as_ref().unwrap();
         assert_eq!(details.category, Some(RefusalCategory::Cyber));
-        assert_eq!(details.explanation.as_deref(), Some("Request involves prohibited content"));
+        assert_eq!(
+            details.explanation.as_deref(),
+            Some("Request involves prohibited content")
+        );
     }
 
     #[test]
@@ -1317,7 +1322,8 @@ mod tests {
 
     #[test]
     fn test_unknown_content_block_deserializes() {
-        let json = r#"{"type": "server_tool_use", "id": "stu_123", "name": "web_search", "input": {}}"#;
+        let json =
+            r#"{"type": "server_tool_use", "id": "stu_123", "name": "web_search", "input": {}}"#;
         let block: ContentBlock = serde_json::from_str(json).unwrap();
         match block {
             ContentBlock::Unknown { block_type, data } => {
