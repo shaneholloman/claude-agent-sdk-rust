@@ -7,36 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-06-19
+
 ### Added
-- Initial implementation of Claude SDK for Rust
-- Non-streaming API (`send_message()`)
-- Streaming API with SSE support (`send_streaming()`)
-- Comprehensive Model registry with all Claude 4.5, 4.x, and 3.x models
-- Model metadata: context windows, output limits, pricing, capabilities
-- AWS Bedrock endpoint support (regional, global, us, eu, ap prefixes)
-- Extended context window tracking (1M tokens for Sonnet 4.5/4.0)
-- Prompt caching types (CacheControl)
-- Tool use types (Tool, ToolUse, ToolResult)
-- Comprehensive error handling with retry-after support
-- Examples: `simple_chat`, `streaming_chat`
-- Full documentation and API docs
-- GitHub Actions CI/CD pipeline
-- Upstream SDK monitoring workflow
-
-### Changed
-- N/A (initial release)
-
-### Deprecated
-- N/A
-
-### Removed
-- N/A
+- **New models**: Claude Sonnet 4.6, Opus 4.6, Opus 4.7, Opus 4.8, Fable 5, Mythos 5 model constants with full metadata
+- **Request metadata**: `Metadata` struct with `user_id` for abuse detection via `with_metadata()`
+- **Service tier**: `ServiceTier` enum (`Auto`, `StandardOnly`) for priority routing via `with_service_tier()`
+- **Inference geo**: Geographic region routing via `with_inference_geo()`
+- **Refusal handling**: `StopReason::Refusal` with `StopDetails` struct (category: `Cyber`/`Bio`/`ReasoningExtraction`, explanation)
+- **Effort levels**: `EffortLevel::XHigh` and `EffortLevel::Max` variants
+- **Cache TTL**: `CacheTtl` enum (`FiveMinutes`, `OneHour`) and `CacheControl::ephemeral_with_ttl()` constructor
+- **Usage details**: `OutputTokensDetails` (thinking tokens), `ServerToolUsage` (web search/fetch counts), `service_tier` and `inference_geo` on `Usage`
+- **Forward compatibility**: `ContentBlock::Unknown` variant catches unrecognized content block types instead of causing deserialization errors
+- **Rate limit info**: `RateLimitInfo` struct parsed from API response headers (`requests_remaining`, `tokens_remaining`, reset times)
 
 ### Fixed
-- N/A
-
-### Security
-- N/A
+- Doc test in `error.rs` referencing non-existent `with_max_retries` method (now uses `with_max_attempts`)
 
 ## [0.1.0]
 
