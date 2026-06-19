@@ -252,6 +252,7 @@ pub struct BatchResult {
 /// Type of batch result
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
+#[allow(clippy::large_enum_variant)]
 pub enum BatchResultType {
     Succeeded { message: MessagesResponse },
     Errored { error: BatchError },

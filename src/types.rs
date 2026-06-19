@@ -36,7 +36,11 @@ pub enum Role {
 }
 
 /// Content block in a message
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// Known content block types are deserialized into their respective variants.
+/// Unrecognized types (e.g., new API features) are captured in [`ContentBlock::Unknown`]
+/// instead of causing a deserialization error.
+#[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ContentBlock {
     /// Text content
@@ -110,6 +114,168 @@ pub enum ContentBlock {
         #[serde(skip_serializing_if = "Option::is_none")]
         cache_control: Option<CacheControl>,
     },
+    /// Unknown content block type (forward compatibility)
+    ///
+    /// When the API returns a content block type this SDK doesn't
+    /// recognize, it's captured here rather than causing a deserialization error.
+    #[serde(untagged)]
+    Unknown {
+        /// The `type` field value
+        block_type: String,
+        /// Raw JSON of the unknown block
+        data: serde_json::Value,
+    },
+}
+
+/// Private helper enum for deserialization of known ContentBlock variants.
+///
+/// Mirrors all known variants of [`ContentBlock`] exactly, with derived
+/// `Deserialize`. Used by the custom `Deserialize` impl on `ContentBlock` to
+/// avoid infinite recursion (since `ContentBlock` can't derive `Deserialize`
+/// due to the `Unknown` catch-all variant needing to capture raw JSON data).
+#[derive(Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum ContentBlockHelper {
+    Text {
+        text: String,
+        cache_control: Option<CacheControl>,
+        citations: Option<Vec<Citation>>,
+    },
+    Image {
+        source: ImageSource,
+        cache_control: Option<CacheControl>,
+    },
+    Document {
+        source: DocumentSource,
+        title: Option<String>,
+        context: Option<String>,
+        citations: Option<CitationConfig>,
+        cache_control: Option<CacheControl>,
+    },
+    ToolUse {
+        id: String,
+        name: String,
+        input: serde_json::Value,
+        cache_control: Option<CacheControl>,
+    },
+    ToolResult {
+        tool_use_id: String,
+        content: Option<String>,
+        is_error: Option<bool>,
+    },
+    Thinking {
+        thinking: String,
+        signature: Option<String>,
+    },
+    RedactedThinking {
+        data: String,
+    },
+    SearchResult {
+        source: String,
+        title: String,
+        content: Vec<TextBlock>,
+        citations: Option<CitationConfig>,
+        cache_control: Option<CacheControl>,
+    },
+}
+
+impl<'de> serde::Deserialize<'de> for ContentBlock {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = serde_json::Value::deserialize(deserializer)?;
+
+        // Try to deserialize as a known variant via the helper enum
+        match serde_json::from_value::<ContentBlockHelper>(value.clone()) {
+            Ok(helper) => Ok(match helper {
+                ContentBlockHelper::Text {
+                    text,
+                    cache_control,
+                    citations,
+                } => ContentBlock::Text {
+                    text,
+                    cache_control,
+                    citations,
+                },
+                ContentBlockHelper::Image {
+                    source,
+                    cache_control,
+                } => ContentBlock::Image {
+                    source,
+                    cache_control,
+                },
+                ContentBlockHelper::Document {
+                    source,
+                    title,
+                    context,
+                    citations,
+                    cache_control,
+                } => ContentBlock::Document {
+                    source,
+                    title,
+                    context,
+                    citations,
+                    cache_control,
+                },
+                ContentBlockHelper::ToolUse {
+                    id,
+                    name,
+                    input,
+                    cache_control,
+                } => ContentBlock::ToolUse {
+                    id,
+                    name,
+                    input,
+                    cache_control,
+                },
+                ContentBlockHelper::ToolResult {
+                    tool_use_id,
+                    content,
+                    is_error,
+                } => ContentBlock::ToolResult {
+                    tool_use_id,
+                    content,
+                    is_error,
+                },
+                ContentBlockHelper::Thinking {
+                    thinking,
+                    signature,
+                } => ContentBlock::Thinking {
+                    thinking,
+                    signature,
+                },
+                ContentBlockHelper::RedactedThinking { data } => {
+                    ContentBlock::RedactedThinking { data }
+                }
+                ContentBlockHelper::SearchResult {
+                    source,
+                    title,
+                    content,
+                    citations,
+                    cache_control,
+                } => ContentBlock::SearchResult {
+                    source,
+                    title,
+                    content,
+                    citations,
+                    cache_control,
+                },
+            }),
+            Err(_) => {
+                // Unknown type -- extract the type field and capture the raw data
+                let block_type = value
+                    .get("type")
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+                Ok(ContentBlock::Unknown {
+                    block_type,
+                    data: value,
+                })
+            }
+        }
+    }
 }
 
 /// Text block for search result content
@@ -177,6 +343,10 @@ pub struct Citation {
 pub struct CacheControl {
     #[serde(rename = "type")]
     pub cache_type: CacheType,
+
+    /// TTL for cached content
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ttl: Option<CacheTtl>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -185,11 +355,31 @@ pub enum CacheType {
     Ephemeral,
 }
 
+/// Cache TTL duration
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CacheTtl {
+    /// 5-minute TTL (default)
+    #[serde(rename = "5m")]
+    FiveMinutes,
+    /// 1-hour TTL
+    #[serde(rename = "1h")]
+    OneHour,
+}
+
 impl CacheControl {
     /// Create an ephemeral cache control
     pub fn ephemeral() -> Self {
         Self {
             cache_type: CacheType::Ephemeral,
+            ttl: None,
+        }
+    }
+
+    /// Create an ephemeral cache control with a specific TTL
+    pub fn ephemeral_with_ttl(ttl: CacheTtl) -> Self {
+        Self {
+            cache_type: CacheType::Ephemeral,
+            ttl: Some(ttl),
         }
     }
 }
@@ -315,8 +505,27 @@ impl ToolChoice {
     }
 }
 
-/// Token usage information
+/// Detailed output token breakdown
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct OutputTokensDetails {
+    /// Tokens used for thinking
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking_tokens: Option<u32>,
+}
+
+/// Server tool usage counts
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct ServerToolUsage {
+    /// Number of web search requests made
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub web_search_requests: Option<u32>,
+    /// Number of web fetch requests made
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub web_fetch_requests: Option<u32>,
+}
+
+/// Token usage information
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Usage {
     pub input_tokens: u32,
     pub output_tokens: u32,
@@ -328,10 +537,26 @@ pub struct Usage {
     /// Tokens read from cache (prompt caching)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_read_input_tokens: Option<u32>,
+
+    /// Detailed breakdown of output tokens
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_tokens_details: Option<OutputTokensDetails>,
+
+    /// Server tool invocation counts
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub server_tool_use: Option<ServerToolUsage>,
+
+    /// Which service tier handled this request
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub service_tier: Option<String>,
+
+    /// Which geographic region processed this request
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inference_geo: Option<String>,
 }
 
 /// Extended usage information for responses with thinking
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtendedUsage {
     #[serde(flatten)]
     pub base: Usage,
@@ -414,6 +639,18 @@ pub struct MessagesRequest {
     /// Supported models: Sonnet 4.5, Haiku 4.5, Opus 4.5, and more.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thinking: Option<ThinkingConfig>,
+
+    /// Request metadata for abuse detection
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<Metadata>,
+
+    /// Service tier for request routing
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub service_tier: Option<ServiceTier>,
+
+    /// Geographic inference routing
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inference_geo: Option<String>,
 }
 
 /// Extended thinking configuration
@@ -457,6 +694,27 @@ pub enum EffortLevel {
     Medium,
     /// Maximum token efficiency
     Low,
+    /// Extra-high effort
+    #[serde(rename = "xhigh")]
+    XHigh,
+    /// Maximum effort
+    Max,
+}
+
+/// Request metadata for abuse detection
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Metadata {
+    /// Opaque user identifier (uuid or hash, no PII)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_id: Option<String>,
+}
+
+/// Service tier for request routing
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ServiceTier {
+    Auto,
+    StandardOnly,
 }
 
 impl MessagesRequest {
@@ -489,6 +747,9 @@ impl MessagesRequest {
             stream: None,
             output_config: None,
             thinking: None,
+            metadata: None,
+            service_tier: None,
+            inference_geo: None,
         }
     }
 
@@ -694,6 +955,24 @@ impl MessagesRequest {
         self.thinking = Some(ThinkingConfig::Enabled { budget_tokens });
         self
     }
+
+    /// Set request metadata for abuse detection.
+    pub fn with_metadata(mut self, metadata: Metadata) -> Self {
+        self.metadata = Some(metadata);
+        self
+    }
+
+    /// Set the service tier for request routing.
+    pub fn with_service_tier(mut self, tier: ServiceTier) -> Self {
+        self.service_tier = Some(tier);
+        self
+    }
+
+    /// Set the geographic inference routing.
+    pub fn with_inference_geo(mut self, geo: impl Into<String>) -> Self {
+        self.inference_geo = Some(geo.into());
+        self
+    }
 }
 
 /// Stop reason for a message
@@ -713,6 +992,30 @@ pub enum StopReason {
     /// Continue by sending the response content back in the next request.
     /// Used with server tools like web search.
     PauseTurn,
+    /// Model refused the request
+    Refusal,
+}
+
+/// Details about why the model stopped (currently only for refusals)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StopDetails {
+    #[serde(rename = "type")]
+    pub stop_type: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub category: Option<RefusalCategory>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub explanation: Option<String>,
+}
+
+/// Category of content refusal
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RefusalCategory {
+    Cyber,
+    Bio,
+    ReasoningExtraction,
 }
 
 /// Response from creating a message
@@ -735,7 +1038,30 @@ pub struct MessagesResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop_sequence: Option<String>,
 
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stop_details: Option<StopDetails>,
+
     pub usage: Usage,
+
+    /// Rate limit info from response headers (not part of JSON body)
+    #[serde(skip)]
+    pub rate_limit_info: Option<RateLimitInfo>,
+}
+
+/// Rate limit information from API response headers
+///
+/// The API returns these headers with every response to help
+/// clients manage their request rate.
+#[derive(Debug, Clone, Default)]
+pub struct RateLimitInfo {
+    /// Remaining requests in current window
+    pub requests_remaining: Option<u32>,
+    /// Remaining tokens in current window
+    pub tokens_remaining: Option<u32>,
+    /// Time until request limit resets (ISO 8601)
+    pub requests_reset: Option<String>,
+    /// Time until token limit resets (ISO 8601)
+    pub tokens_reset: Option<String>,
 }
 
 #[cfg(test)]
@@ -832,5 +1158,249 @@ mod tests {
         assert_eq!(request.messages.len(), 1);
         assert!(request.system.is_some());
         assert_eq!(request.temperature, Some(0.7));
+    }
+
+    #[test]
+    fn test_metadata_serialization() {
+        let request = MessagesRequest::new(
+            "claude-sonnet-4-5-20250929",
+            1024,
+            vec![Message::user("Hello")],
+        )
+        .with_metadata(Metadata {
+            user_id: Some("user-abc-123".into()),
+        });
+
+        let json = serde_json::to_value(&request).unwrap();
+        assert_eq!(json["metadata"]["user_id"], "user-abc-123");
+    }
+
+    #[test]
+    fn test_service_tier_serialization() {
+        let json = serde_json::to_string(&ServiceTier::StandardOnly).unwrap();
+        assert_eq!(json, r#""standard_only""#);
+
+        let json = serde_json::to_string(&ServiceTier::Auto).unwrap();
+        assert_eq!(json, r#""auto""#);
+    }
+
+    #[test]
+    fn test_refusal_stop_reason_deserialization() {
+        let json = r#"{
+            "id": "msg_123",
+            "type": "message",
+            "role": "assistant",
+            "content": [],
+            "model": "claude-sonnet-4-5-20250929",
+            "stop_reason": "refusal",
+            "stop_details": {
+                "type": "refusal",
+                "category": "cyber",
+                "explanation": "Request involves prohibited content"
+            },
+            "usage": { "input_tokens": 10, "output_tokens": 0 }
+        }"#;
+
+        let response: MessagesResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(response.stop_reason, Some(StopReason::Refusal));
+        let details = response.stop_details.as_ref().unwrap();
+        assert_eq!(details.category, Some(RefusalCategory::Cyber));
+        assert_eq!(
+            details.explanation.as_deref(),
+            Some("Request involves prohibited content")
+        );
+    }
+
+    #[test]
+    fn test_effort_xhigh_and_max() {
+        let json_xhigh = serde_json::to_string(&EffortLevel::XHigh).unwrap();
+        assert_eq!(json_xhigh, r#""xhigh""#);
+
+        let json_max = serde_json::to_string(&EffortLevel::Max).unwrap();
+        assert_eq!(json_max, r#""max""#);
+
+        // Round-trip
+        let parsed: EffortLevel = serde_json::from_str(r#""xhigh""#).unwrap();
+        assert_eq!(parsed, EffortLevel::XHigh);
+
+        let parsed: EffortLevel = serde_json::from_str(r#""max""#).unwrap();
+        assert_eq!(parsed, EffortLevel::Max);
+    }
+
+    // Task 5: CacheTtl tests
+
+    #[test]
+    fn test_cache_control_with_ttl() {
+        let cache = CacheControl::ephemeral_with_ttl(CacheTtl::OneHour);
+        let json = serde_json::to_value(&cache).unwrap();
+        assert_eq!(json["type"], "ephemeral");
+        assert_eq!(json["ttl"], "1h");
+    }
+
+    #[test]
+    fn test_cache_control_ttl_deserialization() {
+        let json = r#"{"type": "ephemeral", "ttl": "5m"}"#;
+        let cache: CacheControl = serde_json::from_str(json).unwrap();
+        assert_eq!(cache.ttl, Some(CacheTtl::FiveMinutes));
+    }
+
+    #[test]
+    fn test_cache_control_without_ttl_still_works() {
+        // Existing behavior: no ttl field
+        let cache = CacheControl::ephemeral();
+        let json = serde_json::to_string(&cache).unwrap();
+        assert_eq!(json, r#"{"type":"ephemeral"}"#);
+        assert_eq!(cache.ttl, None);
+    }
+
+    // Task 6: Usage expansion tests
+
+    #[test]
+    fn test_usage_with_details_deserialization() {
+        let json = r#"{
+            "input_tokens": 100,
+            "output_tokens": 50,
+            "cache_creation_input_tokens": 10,
+            "cache_read_input_tokens": 5,
+            "output_tokens_details": {
+                "thinking_tokens": 20
+            },
+            "server_tool_use": {
+                "web_search_requests": 3
+            },
+            "service_tier": "priority",
+            "inference_geo": "us"
+        }"#;
+
+        let usage: Usage = serde_json::from_str(json).unwrap();
+        assert_eq!(usage.input_tokens, 100);
+        assert_eq!(usage.output_tokens, 50);
+        let details = usage.output_tokens_details.unwrap();
+        assert_eq!(details.thinking_tokens, Some(20));
+        let server = usage.server_tool_use.unwrap();
+        assert_eq!(server.web_search_requests, Some(3));
+        assert_eq!(usage.service_tier.as_deref(), Some("priority"));
+    }
+
+    #[test]
+    fn test_usage_without_new_fields_still_works() {
+        let json = r#"{"input_tokens": 10, "output_tokens": 5}"#;
+        let usage: Usage = serde_json::from_str(json).unwrap();
+        assert_eq!(usage.input_tokens, 10);
+        assert!(usage.output_tokens_details.is_none());
+        assert!(usage.server_tool_use.is_none());
+    }
+
+    // Task 8: RateLimitInfo tests
+
+    #[test]
+    fn test_rate_limit_info_default() {
+        let info = RateLimitInfo::default();
+        assert!(info.requests_remaining.is_none());
+        assert!(info.tokens_remaining.is_none());
+        assert!(info.requests_reset.is_none());
+        assert!(info.tokens_reset.is_none());
+    }
+
+    #[test]
+    fn test_response_deserialization_with_skipped_rate_limit() {
+        let json = r#"{
+            "id": "msg_123",
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "text", "text": "hello"}],
+            "model": "claude-sonnet-4-5-20250929",
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 10, "output_tokens": 5}
+        }"#;
+
+        let response: MessagesResponse = serde_json::from_str(json).unwrap();
+        assert!(response.rate_limit_info.is_none()); // Skipped in JSON
+    }
+
+    // Task 7: ContentBlock::Unknown forward-compatible deserialization tests
+
+    #[test]
+    fn test_unknown_content_block_deserializes() {
+        let json =
+            r#"{"type": "server_tool_use", "id": "stu_123", "name": "web_search", "input": {}}"#;
+        let block: ContentBlock = serde_json::from_str(json).unwrap();
+        match block {
+            ContentBlock::Unknown { block_type, data } => {
+                assert_eq!(block_type, "server_tool_use");
+                assert_eq!(data["name"], "web_search");
+                assert_eq!(data["id"], "stu_123");
+            }
+            _ => panic!("Expected Unknown variant"),
+        }
+    }
+
+    #[test]
+    fn test_known_content_blocks_still_work() {
+        let json = r#"{"type": "text", "text": "hello"}"#;
+        let block: ContentBlock = serde_json::from_str(json).unwrap();
+        match block {
+            ContentBlock::Text { text, .. } => assert_eq!(text, "hello"),
+            _ => panic!("Expected Text variant"),
+        }
+    }
+
+    #[test]
+    fn test_content_block_roundtrip() {
+        let original = ContentBlock::Text {
+            text: "test".into(),
+            cache_control: None,
+            citations: None,
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        let deserialized: ContentBlock = serde_json::from_str(&json).unwrap();
+        match deserialized {
+            ContentBlock::Text { text, .. } => assert_eq!(text, "test"),
+            _ => panic!("Expected Text variant after roundtrip"),
+        }
+    }
+
+    #[test]
+    fn test_unknown_block_in_response() {
+        let json = r#"{
+            "id": "msg_123",
+            "type": "message",
+            "role": "assistant",
+            "content": [
+                {"type": "text", "text": "hello"},
+                {"type": "server_tool_use", "id": "stu_1", "name": "web_search", "input": {}}
+            ],
+            "model": "claude-sonnet-4-5-20250929",
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 10, "output_tokens": 5}
+        }"#;
+
+        let response: MessagesResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(response.content.len(), 2);
+        match &response.content[0] {
+            ContentBlock::Text { text, .. } => assert_eq!(text, "hello"),
+            _ => panic!("Expected Text variant"),
+        }
+        match &response.content[1] {
+            ContentBlock::Unknown { block_type, .. } => {
+                assert_eq!(block_type, "server_tool_use");
+            }
+            _ => panic!("Expected Unknown variant"),
+        }
+    }
+
+    #[test]
+    fn test_unknown_block_without_type_field() {
+        // Edge case: a JSON object with no "type" field should fail for the helper
+        // and fall through to Unknown with "unknown" as block_type
+        let json = r#"{"foo": "bar"}"#;
+        let block: ContentBlock = serde_json::from_str(json).unwrap();
+        match block {
+            ContentBlock::Unknown { block_type, data } => {
+                assert_eq!(block_type, "unknown");
+                assert_eq!(data["foo"], "bar");
+            }
+            _ => panic!("Expected Unknown variant"),
+        }
     }
 }
