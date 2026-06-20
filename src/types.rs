@@ -78,6 +78,9 @@ pub enum ContentBlock {
         id: String,
         name: String,
         input: serde_json::Value,
+        /// Which system invoked this tool ("direct", "code_execution_20250825", etc.)
+        #[serde(skip_serializing_if = "Option::is_none")]
+        caller: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         cache_control: Option<CacheControl>,
     },
@@ -85,7 +88,7 @@ pub enum ContentBlock {
     ToolResult {
         tool_use_id: String,
         #[serde(skip_serializing_if = "Option::is_none")]
-        content: Option<String>,
+        content: Option<ToolResultContent>,
         #[serde(skip_serializing_if = "Option::is_none")]
         is_error: Option<bool>,
     },
@@ -115,6 +118,28 @@ pub enum ContentBlock {
         #[serde(skip_serializing_if = "Option::is_none")]
         cache_control: Option<CacheControl>,
     },
+    /// Server-side tool invocation
+    ServerToolUse {
+        id: String,
+        name: String,
+        input: serde_json::Value,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cache_control: Option<CacheControl>,
+    },
+    /// Web search tool result
+    WebSearchToolResult {
+        tool_use_id: String,
+        content: serde_json::Value,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cache_control: Option<CacheControl>,
+    },
+    /// Code execution tool result
+    CodeExecutionToolResult {
+        tool_use_id: String,
+        content: serde_json::Value,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cache_control: Option<CacheControl>,
+    },
     /// Unknown content block type (forward compatibility)
     ///
     /// When the API returns a content block type this SDK doesn't
@@ -126,6 +151,16 @@ pub enum ContentBlock {
         /// Raw JSON of the unknown block
         data: serde_json::Value,
     },
+}
+
+/// Content of a tool result -- either plain text or structured content blocks
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ToolResultContent {
+    /// Plain text result
+    Text(String),
+    /// Array of content blocks
+    Blocks(Vec<ContentBlock>),
 }
 
 /// Private helper enum for deserialization of known ContentBlock variants.
@@ -157,11 +192,12 @@ enum ContentBlockHelper {
         id: String,
         name: String,
         input: serde_json::Value,
+        caller: Option<String>,
         cache_control: Option<CacheControl>,
     },
     ToolResult {
         tool_use_id: String,
-        content: Option<String>,
+        content: Option<ToolResultContent>,
         is_error: Option<bool>,
     },
     Thinking {
@@ -176,6 +212,22 @@ enum ContentBlockHelper {
         title: String,
         content: Vec<TextBlock>,
         citations: Option<CitationConfig>,
+        cache_control: Option<CacheControl>,
+    },
+    ServerToolUse {
+        id: String,
+        name: String,
+        input: serde_json::Value,
+        cache_control: Option<CacheControl>,
+    },
+    WebSearchToolResult {
+        tool_use_id: String,
+        content: serde_json::Value,
+        cache_control: Option<CacheControl>,
+    },
+    CodeExecutionToolResult {
+        tool_use_id: String,
+        content: serde_json::Value,
         cache_control: Option<CacheControl>,
     },
 }
@@ -223,11 +275,13 @@ impl<'de> serde::Deserialize<'de> for ContentBlock {
                     id,
                     name,
                     input,
+                    caller,
                     cache_control,
                 } => ContentBlock::ToolUse {
                     id,
                     name,
                     input,
+                    caller,
                     cache_control,
                 },
                 ContentBlockHelper::ToolResult {
@@ -260,6 +314,35 @@ impl<'de> serde::Deserialize<'de> for ContentBlock {
                     title,
                     content,
                     citations,
+                    cache_control,
+                },
+                ContentBlockHelper::ServerToolUse {
+                    id,
+                    name,
+                    input,
+                    cache_control,
+                } => ContentBlock::ServerToolUse {
+                    id,
+                    name,
+                    input,
+                    cache_control,
+                },
+                ContentBlockHelper::WebSearchToolResult {
+                    tool_use_id,
+                    content,
+                    cache_control,
+                } => ContentBlock::WebSearchToolResult {
+                    tool_use_id,
+                    content,
+                    cache_control,
+                },
+                ContentBlockHelper::CodeExecutionToolResult {
+                    tool_use_id,
+                    content,
+                    cache_control,
+                } => ContentBlock::CodeExecutionToolResult {
+                    tool_use_id,
+                    content,
                     cache_control,
                 },
             }),
@@ -423,7 +506,7 @@ impl Message {
             role: Role::User,
             content: vec![ContentBlock::ToolResult {
                 tool_use_id: tool_use_id.into(),
-                content: Some(content.into()),
+                content: Some(ToolResultContent::Text(content.into())),
                 is_error: None,
             }],
         }
@@ -554,11 +637,21 @@ impl From<CustomTool> for ToolDefinition {
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum ToolChoice {
     /// Let Claude decide whether to use tools (default)
-    Auto,
+    Auto {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        disable_parallel_tool_use: Option<bool>,
+    },
     /// Claude must use one of the provided tools
-    Any,
+    Any {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        disable_parallel_tool_use: Option<bool>,
+    },
     /// Force Claude to use a specific tool
-    Tool { name: String },
+    Tool {
+        name: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        disable_parallel_tool_use: Option<bool>,
+    },
     /// Prevent Claude from using any tools
     None,
 }
@@ -566,17 +659,24 @@ pub enum ToolChoice {
 impl ToolChoice {
     /// Create Auto variant
     pub fn auto() -> Self {
-        Self::Auto
+        Self::Auto {
+            disable_parallel_tool_use: None,
+        }
     }
 
     /// Create Any variant
     pub fn any() -> Self {
-        Self::Any
+        Self::Any {
+            disable_parallel_tool_use: None,
+        }
     }
 
     /// Create Tool variant with specific tool name
     pub fn tool(name: impl Into<String>) -> Self {
-        Self::Tool { name: name.into() }
+        Self::Tool {
+            name: name.into(),
+            disable_parallel_tool_use: None,
+        }
     }
 
     /// Create None variant
@@ -678,13 +778,6 @@ pub struct MessagesRequest {
     /// - `None`: Prevent Claude from using any tools
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_choice: Option<ToolChoice>,
-
-    /// Disable parallel tool use
-    ///
-    /// When true with `tool_choice: auto`, Claude will use at most one tool.
-    /// When true with `tool_choice: any/tool`, Claude will use exactly one tool.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub disable_parallel_tool_use: Option<bool>,
 
     /// Sampling temperature (0.0 to 1.0)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -819,7 +912,6 @@ impl MessagesRequest {
             system: None,
             tools: None,
             tool_choice: None,
-            disable_parallel_tool_use: None,
             temperature: None,
             top_p: None,
             top_k: None,
@@ -954,28 +1046,6 @@ impl MessagesRequest {
         self
     }
 
-    /// Disable parallel tool use.
-    ///
-    /// When enabled, Claude will only use one tool at a time instead of
-    /// potentially calling multiple tools in parallel.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use claude_sdk::{MessagesRequest, Message};
-    ///
-    /// let request = MessagesRequest::new(
-    ///     "claude-sonnet-4-5-20250929",
-    ///     1024,
-    ///     vec![Message::user("Get weather and stock price")],
-    /// )
-    /// .with_disable_parallel_tool_use(true);  // Forces sequential tool calls
-    /// ```
-    pub fn with_disable_parallel_tool_use(mut self, disable: bool) -> Self {
-        self.disable_parallel_tool_use = Some(disable);
-        self
-    }
-
     /// Set the sampling temperature.
     ///
     /// Temperature controls randomness in the output:
@@ -1084,6 +1154,22 @@ impl MessagesRequest {
         self.inference_geo = Some(geo.into());
         self
     }
+}
+
+/// Response from the token counting endpoint
+///
+/// Use `ClaudeClient::count_tokens()` to get server-side token counts
+/// before sending a request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TokenCount {
+    /// Number of input tokens the request would use
+    pub input_tokens: u32,
+    /// Tokens that would be written to cache
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_creation_input_tokens: Option<u32>,
+    /// Tokens that would be read from cache
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_read_input_tokens: Option<u32>,
 }
 
 /// Stop reason for a message
@@ -1400,6 +1486,29 @@ mod tests {
         assert_eq!(usage.input_tokens, 10);
         assert!(usage.output_tokens_details.is_none());
         assert!(usage.server_tool_use.is_none());
+    }
+
+    // Task 6: TokenCount tests
+
+    #[test]
+    fn test_token_count_deserialization() {
+        let json = r#"{
+            "input_tokens": 1234,
+            "cache_creation_input_tokens": 100,
+            "cache_read_input_tokens": 50
+        }"#;
+        let count: TokenCount = serde_json::from_str(json).unwrap();
+        assert_eq!(count.input_tokens, 1234);
+        assert_eq!(count.cache_creation_input_tokens, Some(100));
+        assert_eq!(count.cache_read_input_tokens, Some(50));
+    }
+
+    #[test]
+    fn test_token_count_minimal() {
+        let json = r#"{"input_tokens": 42}"#;
+        let count: TokenCount = serde_json::from_str(json).unwrap();
+        assert_eq!(count.input_tokens, 42);
+        assert!(count.cache_creation_input_tokens.is_none());
     }
 
     // Task 8: RateLimitInfo tests
