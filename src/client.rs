@@ -15,6 +15,9 @@ use aws_sdk_bedrockruntime::Client as BedrockClient;
 /// API endpoint for Anthropic
 const ANTHROPIC_API_URL: &str = "https://api.anthropic.com/v1/messages";
 
+/// Token counting endpoint
+const TOKEN_COUNT_URL: &str = "https://api.anthropic.com/v1/messages/count_tokens";
+
 /// Current API version
 const API_VERSION: &str = "2023-06-01";
 
@@ -577,6 +580,58 @@ impl ClaudeClient {
         }
     }
 
+    /// Count tokens for a request without sending it
+    ///
+    /// Uses the server-side token counting endpoint for accurate counts.
+    /// This is more accurate than the local `TokenCounter` but requires an API call.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use claude_sdk::{ClaudeClient, MessagesRequest, Message};
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = ClaudeClient::anthropic("your-api-key");
+    ///
+    /// let request = MessagesRequest::new(
+    ///     "claude-sonnet-4-5-20250929",
+    ///     1024,
+    ///     vec![Message::user("Hello!")],
+    /// );
+    ///
+    /// let count = client.count_tokens(request).await?;
+    /// println!("Would use {} input tokens", count.input_tokens);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn count_tokens(&self, request: MessagesRequest) -> Result<crate::types::TokenCount> {
+        match &self.backend {
+            ClaudeBackend::Anthropic { api_key } => {
+                let response = self
+                    .http
+                    .post(TOKEN_COUNT_URL)
+                    .header("x-api-key", api_key)
+                    .header("anthropic-version", &self.api_version)
+                    .header("content-type", "application/json")
+                    .json(&request)
+                    .send()
+                    .await?;
+
+                let status = response.status();
+                if !status.is_success() {
+                    return Err(self.handle_error_response(status, response).await);
+                }
+
+                let token_count: crate::types::TokenCount = response.json().await?;
+                Ok(token_count)
+            }
+            #[cfg(feature = "bedrock")]
+            ClaudeBackend::Bedrock { .. } => Err(crate::error::Error::InvalidRequest(
+                "Token counting endpoint is not available for Bedrock".into(),
+            )),
+        }
+    }
+
     /// Send a message with automatic retry on transient failures
     ///
     /// This method automatically retries on rate limits (429) and server errors (5xx)
@@ -667,6 +722,14 @@ mod tests {
         let info = parse_rate_limit_headers(&headers);
         assert!(info.requests_remaining.is_none());
         assert!(info.tokens_remaining.is_none());
+    }
+
+    #[test]
+    fn test_token_count_url() {
+        assert_eq!(
+            TOKEN_COUNT_URL,
+            "https://api.anthropic.com/v1/messages/count_tokens"
+        );
     }
 
     #[test]

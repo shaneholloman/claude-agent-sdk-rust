@@ -3,7 +3,10 @@
 //! Claude models use the cl100k_base tokenizer (same as GPT-4).
 //! This module provides accurate token counting for messages, tools, and system prompts.
 
-use crate::types::{ContentBlock, Message, MessagesRequest, SystemPrompt, Tool};
+use crate::types::{
+    ContentBlock, CustomTool, Message, MessagesRequest, SystemPrompt, ToolDefinition,
+    ToolResultContent,
+};
 use tiktoken_rs::cl100k_base;
 
 /// Token counter for Claude API requests
@@ -109,8 +112,17 @@ impl TokenCounter {
             } => {
                 let mut total = 4; // Type and structure overhead
                 total += self.count_text(tool_use_id);
-                if let Some(text) = content {
-                    total += self.count_text(text);
+                if let Some(result_content) = content {
+                    match result_content {
+                        ToolResultContent::Text(text) => {
+                            total += self.count_text(text);
+                        }
+                        ToolResultContent::Blocks(blocks) => {
+                            for block in blocks {
+                                total += self.count_content_block(block);
+                            }
+                        }
+                    }
                 }
                 total
             }
@@ -140,6 +152,9 @@ impl TokenCounter {
 
                 total
             }
+            ContentBlock::ServerToolUse { .. } => 0,
+            ContentBlock::WebSearchToolResult { .. } => 0,
+            ContentBlock::CodeExecutionToolResult { .. } => 0,
             ContentBlock::Unknown { .. } => 0,
         }
     }
@@ -155,10 +170,10 @@ impl TokenCounter {
         }
     }
 
-    /// Count tokens in a tool definition
+    /// Count tokens in a custom tool definition
     ///
     /// Tools add overhead to the system prompt.
-    pub fn count_tool(&self, tool: &Tool) -> usize {
+    pub fn count_custom_tool(&self, tool: &CustomTool) -> usize {
         let mut total = 10; // Base overhead for tool structure
 
         total += self.count_text(&tool.name);
@@ -166,6 +181,22 @@ impl TokenCounter {
         total += self.count_text(&tool.input_schema.to_string());
 
         total
+    }
+
+    /// Count tokens in a tool definition (custom or server)
+    ///
+    /// For custom tools, counts name + description + schema.
+    /// For server tools, estimates from the raw JSON representation.
+    pub fn count_tool(&self, tool: &ToolDefinition) -> usize {
+        match tool {
+            ToolDefinition::Custom(custom) => self.count_custom_tool(custom),
+            ToolDefinition::Server(value) => {
+                // Estimate from JSON string representation
+                let mut total = 10;
+                total += self.count_text(&value.to_string());
+                total
+            }
+        }
     }
 
     /// Count total tokens in a request
@@ -325,7 +356,7 @@ mod tests {
     fn test_count_tool() {
         let counter = TokenCounter::new();
 
-        let tool = Tool {
+        let tool = CustomTool {
             name: "get_weather".into(),
             description: "Get the current weather".into(),
             input_schema: json!({"type": "object"}),
@@ -334,8 +365,13 @@ mod tests {
             cache_control: None,
         };
 
-        let tokens = counter.count_tool(&tool);
+        let tokens = counter.count_custom_tool(&tool);
         assert!(tokens > 10); // Should include overhead + content
+
+        // Also test via ToolDefinition
+        let tool_def = ToolDefinition::Custom(tool);
+        let tokens2 = counter.count_tool(&tool_def);
+        assert!(tokens2 > 10);
     }
 
     #[test]

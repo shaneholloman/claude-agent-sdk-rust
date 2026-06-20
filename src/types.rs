@@ -6,13 +6,14 @@
 //! - [`MessagesResponse`] - Response from the Messages API
 //! - [`Message`] - Conversation messages with user/assistant roles
 //! - [`ContentBlock`] - Text, images, documents, tool calls, and more
-//! - [`Tool`] - Tool definitions for function calling
+//! - [`CustomTool`] - Custom client-side tool definitions
+//! - [`ToolDefinition`] - Enum wrapping custom and server tools
 //! - [`ToolChoice`] - Control how Claude uses tools
 //!
 //! # Example
 //!
 //! ```rust
-//! use claude_sdk::types::{MessagesRequest, Message, Tool, ToolChoice};
+//! use claude_sdk::types::{MessagesRequest, Message, CustomTool, ToolChoice};
 //! use serde_json::json;
 //!
 //! // Create a basic request
@@ -77,6 +78,9 @@ pub enum ContentBlock {
         id: String,
         name: String,
         input: serde_json::Value,
+        /// Which system invoked this tool ("direct", "code_execution_20250825", etc.)
+        #[serde(skip_serializing_if = "Option::is_none")]
+        caller: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         cache_control: Option<CacheControl>,
     },
@@ -84,7 +88,7 @@ pub enum ContentBlock {
     ToolResult {
         tool_use_id: String,
         #[serde(skip_serializing_if = "Option::is_none")]
-        content: Option<String>,
+        content: Option<ToolResultContent>,
         #[serde(skip_serializing_if = "Option::is_none")]
         is_error: Option<bool>,
     },
@@ -114,6 +118,28 @@ pub enum ContentBlock {
         #[serde(skip_serializing_if = "Option::is_none")]
         cache_control: Option<CacheControl>,
     },
+    /// Server-side tool invocation
+    ServerToolUse {
+        id: String,
+        name: String,
+        input: serde_json::Value,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cache_control: Option<CacheControl>,
+    },
+    /// Web search tool result
+    WebSearchToolResult {
+        tool_use_id: String,
+        content: serde_json::Value,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cache_control: Option<CacheControl>,
+    },
+    /// Code execution tool result
+    CodeExecutionToolResult {
+        tool_use_id: String,
+        content: serde_json::Value,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cache_control: Option<CacheControl>,
+    },
     /// Unknown content block type (forward compatibility)
     ///
     /// When the API returns a content block type this SDK doesn't
@@ -125,6 +151,16 @@ pub enum ContentBlock {
         /// Raw JSON of the unknown block
         data: serde_json::Value,
     },
+}
+
+/// Content of a tool result -- either plain text or structured content blocks
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ToolResultContent {
+    /// Plain text result
+    Text(String),
+    /// Array of content blocks
+    Blocks(Vec<ContentBlock>),
 }
 
 /// Private helper enum for deserialization of known ContentBlock variants.
@@ -156,11 +192,12 @@ enum ContentBlockHelper {
         id: String,
         name: String,
         input: serde_json::Value,
+        caller: Option<String>,
         cache_control: Option<CacheControl>,
     },
     ToolResult {
         tool_use_id: String,
-        content: Option<String>,
+        content: Option<ToolResultContent>,
         is_error: Option<bool>,
     },
     Thinking {
@@ -175,6 +212,22 @@ enum ContentBlockHelper {
         title: String,
         content: Vec<TextBlock>,
         citations: Option<CitationConfig>,
+        cache_control: Option<CacheControl>,
+    },
+    ServerToolUse {
+        id: String,
+        name: String,
+        input: serde_json::Value,
+        cache_control: Option<CacheControl>,
+    },
+    WebSearchToolResult {
+        tool_use_id: String,
+        content: serde_json::Value,
+        cache_control: Option<CacheControl>,
+    },
+    CodeExecutionToolResult {
+        tool_use_id: String,
+        content: serde_json::Value,
         cache_control: Option<CacheControl>,
     },
 }
@@ -222,11 +275,13 @@ impl<'de> serde::Deserialize<'de> for ContentBlock {
                     id,
                     name,
                     input,
+                    caller,
                     cache_control,
                 } => ContentBlock::ToolUse {
                     id,
                     name,
                     input,
+                    caller,
                     cache_control,
                 },
                 ContentBlockHelper::ToolResult {
@@ -259,6 +314,35 @@ impl<'de> serde::Deserialize<'de> for ContentBlock {
                     title,
                     content,
                     citations,
+                    cache_control,
+                },
+                ContentBlockHelper::ServerToolUse {
+                    id,
+                    name,
+                    input,
+                    cache_control,
+                } => ContentBlock::ServerToolUse {
+                    id,
+                    name,
+                    input,
+                    cache_control,
+                },
+                ContentBlockHelper::WebSearchToolResult {
+                    tool_use_id,
+                    content,
+                    cache_control,
+                } => ContentBlock::WebSearchToolResult {
+                    tool_use_id,
+                    content,
+                    cache_control,
+                },
+                ContentBlockHelper::CodeExecutionToolResult {
+                    tool_use_id,
+                    content,
+                    cache_control,
+                } => ContentBlock::CodeExecutionToolResult {
+                    tool_use_id,
+                    content,
                     cache_control,
                 },
             }),
@@ -422,7 +506,7 @@ impl Message {
             role: Role::User,
             content: vec![ContentBlock::ToolResult {
                 tool_use_id: tool_use_id.into(),
-                content: Some(content.into()),
+                content: Some(ToolResultContent::Text(content.into())),
                 is_error: None,
             }],
         }
@@ -446,9 +530,34 @@ pub struct SystemBlock {
     pub cache_control: Option<CacheControl>,
 }
 
-/// Tool definition
+/// Custom client-side tool definition
+///
+/// Defines a tool with a name, description, and JSON Schema for its inputs.
+/// Claude can call this tool and the client handles execution.
+///
+/// # Example
+///
+/// ```rust
+/// use claude_sdk::CustomTool;
+/// use serde_json::json;
+///
+/// let tool = CustomTool {
+///     name: "get_weather".into(),
+///     description: "Get weather for a location".into(),
+///     input_schema: json!({
+///         "type": "object",
+///         "properties": {
+///             "location": { "type": "string" }
+///         },
+///         "required": ["location"]
+///     }),
+///     disable_user_input: Some(true),
+///     input_examples: None,
+///     cache_control: None,
+/// };
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Tool {
+pub struct CustomTool {
     pub name: String,
     pub description: String,
     pub input_schema: serde_json::Value,
@@ -469,16 +578,80 @@ pub struct Tool {
     pub cache_control: Option<CacheControl>,
 }
 
+/// Renamed to [`CustomTool`] in v2.0. Use `CustomTool` directly.
+#[deprecated(
+    since = "2.0.0",
+    note = "Renamed to CustomTool. Use CustomTool directly."
+)]
+pub type Tool = CustomTool;
+
+/// Tool definition -- either a custom client tool or a built-in server tool.
+///
+/// Use this type in [`MessagesRequest::tools`].
+///
+/// # Variants
+///
+/// - [`ToolDefinition::Custom`] - A client-side tool with name, description, and JSON schema
+/// - [`ToolDefinition::Server`] - Any server-managed tool (web search, code execution, etc.)
+///
+/// # Example
+///
+/// ```rust
+/// use claude_sdk::{CustomTool, ToolDefinition};
+/// use serde_json::json;
+///
+/// // Custom tool
+/// let custom = ToolDefinition::Custom(CustomTool {
+///     name: "my_tool".into(),
+///     description: "A custom tool".into(),
+///     input_schema: json!({"type": "object"}),
+///     disable_user_input: None,
+///     input_examples: None,
+///     cache_control: None,
+/// });
+///
+/// // Server tool (raw JSON)
+/// let server = ToolDefinition::Server(json!({
+///     "type": "web_search_20250305",
+///     "name": "web_search",
+///     "max_uses": 5
+/// }));
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ToolDefinition {
+    /// Custom client-side tool with name, description, and JSON schema
+    Custom(CustomTool),
+    /// Any server tool -- uses raw JSON since server tool types vary
+    Server(serde_json::Value),
+}
+
+impl From<CustomTool> for ToolDefinition {
+    fn from(tool: CustomTool) -> Self {
+        ToolDefinition::Custom(tool)
+    }
+}
+
 /// Tool choice configuration
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum ToolChoice {
     /// Let Claude decide whether to use tools (default)
-    Auto,
+    Auto {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        disable_parallel_tool_use: Option<bool>,
+    },
     /// Claude must use one of the provided tools
-    Any,
+    Any {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        disable_parallel_tool_use: Option<bool>,
+    },
     /// Force Claude to use a specific tool
-    Tool { name: String },
+    Tool {
+        name: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        disable_parallel_tool_use: Option<bool>,
+    },
     /// Prevent Claude from using any tools
     None,
 }
@@ -486,17 +659,24 @@ pub enum ToolChoice {
 impl ToolChoice {
     /// Create Auto variant
     pub fn auto() -> Self {
-        Self::Auto
+        Self::Auto {
+            disable_parallel_tool_use: None,
+        }
     }
 
     /// Create Any variant
     pub fn any() -> Self {
-        Self::Any
+        Self::Any {
+            disable_parallel_tool_use: None,
+        }
     }
 
     /// Create Tool variant with specific tool name
     pub fn tool(name: impl Into<String>) -> Self {
-        Self::Tool { name: name.into() }
+        Self::Tool {
+            name: name.into(),
+            disable_parallel_tool_use: None,
+        }
     }
 
     /// Create None variant
@@ -585,9 +765,9 @@ pub struct MessagesRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub system: Option<SystemPrompt>,
 
-    /// Available tools
+    /// Available tools (custom client tools and/or server tools)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tools: Option<Vec<Tool>>,
+    pub tools: Option<Vec<ToolDefinition>>,
 
     /// Tool choice configuration
     ///
@@ -598,13 +778,6 @@ pub struct MessagesRequest {
     /// - `None`: Prevent Claude from using any tools
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_choice: Option<ToolChoice>,
-
-    /// Disable parallel tool use
-    ///
-    /// When true with `tool_choice: auto`, Claude will use at most one tool.
-    /// When true with `tool_choice: any/tool`, Claude will use exactly one tool.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub disable_parallel_tool_use: Option<bool>,
 
     /// Sampling temperature (0.0 to 1.0)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -664,13 +837,30 @@ pub enum ThinkingConfig {
         /// Minimum: 1024 tokens
         /// Can exceed max_tokens with interleaved thinking (beta: interleaved-thinking-2025-05-14)
         budget_tokens: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        display: Option<ThinkingDisplay>,
     },
     /// Disable extended thinking
     Disabled,
+    /// Adaptive thinking -- let the model decide how much to think
+    Adaptive {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        display: Option<ThinkingDisplay>,
+    },
+}
+
+/// How to display thinking blocks in responses
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ThinkingDisplay {
+    /// Show summarized thinking
+    Summarized,
+    /// Omit thinking from response
+    Omitted,
 }
 
 /// Output configuration for controlling response behavior
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct OutputConfig {
     /// Effort level: controls token spending vs. response quality
     ///
@@ -682,6 +872,18 @@ pub struct OutputConfig {
     /// Only supported by Claude Opus 4.5
     #[serde(skip_serializing_if = "Option::is_none")]
     pub effort: Option<EffortLevel>,
+
+    /// Output format specification for structured outputs
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub format: Option<OutputFormat>,
+}
+
+/// Output format specification for structured outputs
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct OutputFormat {
+    #[serde(rename = "type")]
+    pub format_type: String,
+    pub schema: serde_json::Value,
 }
 
 /// Effort level for response generation
@@ -739,7 +941,6 @@ impl MessagesRequest {
             system: None,
             tools: None,
             tool_choice: None,
-            disable_parallel_tool_use: None,
             temperature: None,
             top_p: None,
             top_k: None,
@@ -776,15 +977,15 @@ impl MessagesRequest {
 
     /// Set the available tools for this request.
     ///
-    /// Tools allow Claude to call functions and return structured data.
+    /// Accepts any mix of custom and server tools via [`ToolDefinition`].
     ///
     /// # Example
     ///
     /// ```rust
-    /// use claude_sdk::{MessagesRequest, Message, Tool};
+    /// use claude_sdk::{MessagesRequest, Message, CustomTool, ToolDefinition};
     /// use serde_json::json;
     ///
-    /// let calculator = Tool {
+    /// let calculator = ToolDefinition::Custom(CustomTool {
     ///     name: "calculator".into(),
     ///     description: "Perform basic arithmetic operations".into(),
     ///     input_schema: json!({
@@ -799,7 +1000,7 @@ impl MessagesRequest {
     ///     disable_user_input: Some(true),
     ///     input_examples: None,
     ///     cache_control: None,
-    /// };
+    /// });
     ///
     /// let request = MessagesRequest::new(
     ///     "claude-sonnet-4-5-20250929",
@@ -808,8 +1009,39 @@ impl MessagesRequest {
     /// )
     /// .with_tools(vec![calculator]);
     /// ```
-    pub fn with_tools(mut self, tools: Vec<Tool>) -> Self {
+    pub fn with_tools(mut self, tools: Vec<ToolDefinition>) -> Self {
         self.tools = Some(tools);
+        self
+    }
+
+    /// Set tools using only custom (client-side) tools.
+    ///
+    /// Convenience method that wraps each [`CustomTool`] in [`ToolDefinition::Custom`].
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use claude_sdk::{MessagesRequest, Message, CustomTool};
+    /// use serde_json::json;
+    ///
+    /// let tool = CustomTool {
+    ///     name: "my_tool".into(),
+    ///     description: "A tool".into(),
+    ///     input_schema: json!({"type": "object"}),
+    ///     disable_user_input: None,
+    ///     input_examples: None,
+    ///     cache_control: None,
+    /// };
+    ///
+    /// let request = MessagesRequest::new(
+    ///     "claude-sonnet-4-5-20250929",
+    ///     1024,
+    ///     vec![Message::user("Hello")],
+    /// )
+    /// .with_custom_tools(vec![tool]);
+    /// ```
+    pub fn with_custom_tools(mut self, tools: Vec<CustomTool>) -> Self {
+        self.tools = Some(tools.into_iter().map(ToolDefinition::Custom).collect());
         self
     }
 
@@ -840,28 +1072,6 @@ impl MessagesRequest {
     /// ```
     pub fn with_tool_choice(mut self, choice: ToolChoice) -> Self {
         self.tool_choice = Some(choice);
-        self
-    }
-
-    /// Disable parallel tool use.
-    ///
-    /// When enabled, Claude will only use one tool at a time instead of
-    /// potentially calling multiple tools in parallel.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use claude_sdk::{MessagesRequest, Message};
-    ///
-    /// let request = MessagesRequest::new(
-    ///     "claude-sonnet-4-5-20250929",
-    ///     1024,
-    ///     vec![Message::user("Get weather and stock price")],
-    /// )
-    /// .with_disable_parallel_tool_use(true);  // Forces sequential tool calls
-    /// ```
-    pub fn with_disable_parallel_tool_use(mut self, disable: bool) -> Self {
-        self.disable_parallel_tool_use = Some(disable);
         self
     }
 
@@ -922,8 +1132,23 @@ impl MessagesRequest {
     /// .with_effort(EffortLevel::Low);  // Optimize for efficiency
     /// ```
     pub fn with_effort(mut self, effort: EffortLevel) -> Self {
-        self.output_config = Some(OutputConfig {
-            effort: Some(effort),
+        let config = self.output_config.get_or_insert(OutputConfig {
+            effort: None,
+            format: None,
+        });
+        config.effort = Some(effort);
+        self
+    }
+
+    /// Set JSON schema for structured output
+    pub fn with_json_schema(mut self, schema: serde_json::Value) -> Self {
+        let config = self.output_config.get_or_insert(OutputConfig {
+            effort: None,
+            format: None,
+        });
+        config.format = Some(OutputFormat {
+            format_type: "json_schema".into(),
+            schema,
         });
         self
     }
@@ -952,7 +1177,16 @@ impl MessagesRequest {
     /// .with_thinking(4096);  // Allow up to 4096 tokens for reasoning
     /// ```
     pub fn with_thinking(mut self, budget_tokens: u32) -> Self {
-        self.thinking = Some(ThinkingConfig::Enabled { budget_tokens });
+        self.thinking = Some(ThinkingConfig::Enabled {
+            budget_tokens,
+            display: None,
+        });
+        self
+    }
+
+    /// Enable adaptive thinking -- let the model decide how much to think
+    pub fn with_adaptive_thinking(mut self) -> Self {
+        self.thinking = Some(ThinkingConfig::Adaptive { display: None });
         self
     }
 
@@ -973,6 +1207,22 @@ impl MessagesRequest {
         self.inference_geo = Some(geo.into());
         self
     }
+}
+
+/// Response from the token counting endpoint
+///
+/// Use `ClaudeClient::count_tokens()` to get server-side token counts
+/// before sending a request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TokenCount {
+    /// Number of input tokens the request would use
+    pub input_tokens: u32,
+    /// Tokens that would be written to cache
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_creation_input_tokens: Option<u32>,
+    /// Tokens that would be read from cache
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_read_input_tokens: Option<u32>,
 }
 
 /// Stop reason for a message
@@ -1110,7 +1360,7 @@ mod tests {
 
     #[test]
     fn test_tool_with_cache() {
-        let tool = Tool {
+        let tool = CustomTool {
             name: "test".into(),
             description: "test tool".into(),
             input_schema: serde_json::json!({"type": "object"}),
@@ -1291,6 +1541,29 @@ mod tests {
         assert!(usage.server_tool_use.is_none());
     }
 
+    // Task 6: TokenCount tests
+
+    #[test]
+    fn test_token_count_deserialization() {
+        let json = r#"{
+            "input_tokens": 1234,
+            "cache_creation_input_tokens": 100,
+            "cache_read_input_tokens": 50
+        }"#;
+        let count: TokenCount = serde_json::from_str(json).unwrap();
+        assert_eq!(count.input_tokens, 1234);
+        assert_eq!(count.cache_creation_input_tokens, Some(100));
+        assert_eq!(count.cache_read_input_tokens, Some(50));
+    }
+
+    #[test]
+    fn test_token_count_minimal() {
+        let json = r#"{"input_tokens": 42}"#;
+        let count: TokenCount = serde_json::from_str(json).unwrap();
+        assert_eq!(count.input_tokens, 42);
+        assert!(count.cache_creation_input_tokens.is_none());
+    }
+
     // Task 8: RateLimitInfo tests
 
     #[test]
@@ -1323,13 +1596,12 @@ mod tests {
     #[test]
     fn test_unknown_content_block_deserializes() {
         let json =
-            r#"{"type": "server_tool_use", "id": "stu_123", "name": "web_search", "input": {}}"#;
+            r#"{"type": "some_future_block", "id": "fb_123", "data": "test"}"#;
         let block: ContentBlock = serde_json::from_str(json).unwrap();
         match block {
             ContentBlock::Unknown { block_type, data } => {
-                assert_eq!(block_type, "server_tool_use");
-                assert_eq!(data["name"], "web_search");
-                assert_eq!(data["id"], "stu_123");
+                assert_eq!(block_type, "some_future_block");
+                assert_eq!(data["id"], "fb_123");
             }
             _ => panic!("Expected Unknown variant"),
         }
@@ -1368,7 +1640,7 @@ mod tests {
             "role": "assistant",
             "content": [
                 {"type": "text", "text": "hello"},
-                {"type": "server_tool_use", "id": "stu_1", "name": "web_search", "input": {}}
+                {"type": "some_future_block", "id": "fb_1", "data": "test"}
             ],
             "model": "claude-sonnet-4-5-20250929",
             "stop_reason": "end_turn",
@@ -1383,7 +1655,7 @@ mod tests {
         }
         match &response.content[1] {
             ContentBlock::Unknown { block_type, .. } => {
-                assert_eq!(block_type, "server_tool_use");
+                assert_eq!(block_type, "some_future_block");
             }
             _ => panic!("Expected Unknown variant"),
         }
@@ -1401,6 +1673,212 @@ mod tests {
                 assert_eq!(data["foo"], "bar");
             }
             _ => panic!("Expected Unknown variant"),
+        }
+    }
+
+    // Task 3: Server tool content block tests
+
+    #[test]
+    fn test_server_tool_use_deserialization() {
+        let json = r#"{"type": "server_tool_use", "id": "stu_123", "name": "web_search", "input": {"query": "rust"}}"#;
+        let block: ContentBlock = serde_json::from_str(json).unwrap();
+        match block {
+            ContentBlock::ServerToolUse { id, name, input, .. } => {
+                assert_eq!(id, "stu_123");
+                assert_eq!(name, "web_search");
+                assert_eq!(input["query"], "rust");
+            }
+            _ => panic!("Expected ServerToolUse variant"),
+        }
+    }
+
+    #[test]
+    fn test_web_search_tool_result_deserialization() {
+        let json = r#"{"type": "web_search_tool_result", "tool_use_id": "stu_123", "content": [{"type": "web_page", "url": "https://example.com"}]}"#;
+        let block: ContentBlock = serde_json::from_str(json).unwrap();
+        match block {
+            ContentBlock::WebSearchToolResult { tool_use_id, content, .. } => {
+                assert_eq!(tool_use_id, "stu_123");
+                assert!(content.is_array());
+            }
+            _ => panic!("Expected WebSearchToolResult variant"),
+        }
+    }
+
+    #[test]
+    fn test_code_execution_tool_result_deserialization() {
+        let json = r#"{"type": "code_execution_tool_result", "tool_use_id": "ce_123", "content": {"stdout": "hello"}}"#;
+        let block: ContentBlock = serde_json::from_str(json).unwrap();
+        match block {
+            ContentBlock::CodeExecutionToolResult { tool_use_id, content, .. } => {
+                assert_eq!(tool_use_id, "ce_123");
+                assert_eq!(content["stdout"], "hello");
+            }
+            _ => panic!("Expected CodeExecutionToolResult variant"),
+        }
+    }
+
+    // Task 4: Structured output + adaptive thinking tests
+
+    #[test]
+    fn test_structured_output_serialization() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"}
+            }
+        });
+        let request = MessagesRequest::new(
+            "claude-sonnet-4-5-20250929",
+            1024,
+            vec![Message::user("test")],
+        )
+        .with_json_schema(schema.clone());
+
+        let json = serde_json::to_value(&request).unwrap();
+        assert_eq!(json["output_config"]["format"]["type"], "json_schema");
+        assert_eq!(json["output_config"]["format"]["schema"], schema);
+    }
+
+    #[test]
+    fn test_effort_and_schema_coexist() {
+        let request = MessagesRequest::new(
+            "claude-sonnet-4-5-20250929",
+            1024,
+            vec![Message::user("test")],
+        )
+        .with_effort(EffortLevel::Low)
+        .with_json_schema(serde_json::json!({"type": "object"}));
+
+        let config = request.output_config.as_ref().unwrap();
+        assert_eq!(config.effort, Some(EffortLevel::Low));
+        assert!(config.format.is_some());
+    }
+
+    #[test]
+    fn test_adaptive_thinking_serialization() {
+        let request = MessagesRequest::new(
+            "claude-sonnet-4-5-20250929",
+            1024,
+            vec![Message::user("test")],
+        )
+        .with_adaptive_thinking();
+
+        let json = serde_json::to_value(&request).unwrap();
+        assert_eq!(json["thinking"]["type"], "adaptive");
+    }
+
+    #[test]
+    fn test_thinking_config_enabled_with_display() {
+        let config = ThinkingConfig::Enabled {
+            budget_tokens: 4096,
+            display: Some(ThinkingDisplay::Summarized),
+        };
+        let json = serde_json::to_value(&config).unwrap();
+        assert_eq!(json["type"], "enabled");
+        assert_eq!(json["budget_tokens"], 4096);
+        assert_eq!(json["display"], "summarized");
+    }
+
+    // Task 5: ToolChoice, ToolResultContent, ToolUse caller tests
+
+    #[test]
+    fn test_tool_choice_auto_serialization() {
+        let choice = ToolChoice::auto();
+        let json = serde_json::to_value(&choice).unwrap();
+        assert_eq!(json["type"], "auto");
+        // disable_parallel_tool_use should be omitted when None
+        assert!(json.get("disable_parallel_tool_use").is_none());
+    }
+
+    #[test]
+    fn test_tool_choice_with_disable_parallel() {
+        let choice = ToolChoice::Auto {
+            disable_parallel_tool_use: Some(true),
+        };
+        let json = serde_json::to_value(&choice).unwrap();
+        assert_eq!(json["type"], "auto");
+        assert_eq!(json["disable_parallel_tool_use"], true);
+    }
+
+    #[test]
+    fn test_tool_choice_tool_serialization() {
+        let choice = ToolChoice::tool("my_tool");
+        let json = serde_json::to_value(&choice).unwrap();
+        assert_eq!(json["type"], "tool");
+        assert_eq!(json["name"], "my_tool");
+        assert!(json.get("disable_parallel_tool_use").is_none());
+    }
+
+    #[test]
+    fn test_tool_result_content_text_serialization() {
+        let content = ToolResultContent::Text("hello".into());
+        let json = serde_json::to_value(&content).unwrap();
+        assert_eq!(json, serde_json::json!("hello"));
+    }
+
+    #[test]
+    fn test_tool_result_content_blocks_serialization() {
+        let content = ToolResultContent::Blocks(vec![ContentBlock::Text {
+            text: "result".into(),
+            cache_control: None,
+            citations: None,
+        }]);
+        let json = serde_json::to_value(&content).unwrap();
+        assert!(json.is_array());
+        assert_eq!(json[0]["type"], "text");
+        assert_eq!(json[0]["text"], "result");
+    }
+
+    #[test]
+    fn test_tool_use_with_caller() {
+        let block = ContentBlock::ToolUse {
+            id: "tu_123".into(),
+            name: "my_tool".into(),
+            input: serde_json::json!({}),
+            caller: Some("code_execution_20250825".into()),
+            cache_control: None,
+        };
+        let json = serde_json::to_value(&block).unwrap();
+        assert_eq!(json["caller"], "code_execution_20250825");
+    }
+
+    #[test]
+    fn test_tool_use_without_caller() {
+        let block = ContentBlock::ToolUse {
+            id: "tu_123".into(),
+            name: "my_tool".into(),
+            input: serde_json::json!({}),
+            caller: None,
+            cache_control: None,
+        };
+        let json = serde_json::to_value(&block).unwrap();
+        assert!(json.get("caller").is_none());
+    }
+
+    #[test]
+    fn test_server_tool_use_in_response() {
+        let json = r#"{
+            "id": "msg_123",
+            "type": "message",
+            "role": "assistant",
+            "content": [
+                {"type": "text", "text": "searching..."},
+                {"type": "server_tool_use", "id": "stu_1", "name": "web_search", "input": {"query": "rust"}}
+            ],
+            "model": "claude-sonnet-4-5-20250929",
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 10, "output_tokens": 5}
+        }"#;
+
+        let response: MessagesResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(response.content.len(), 2);
+        match &response.content[1] {
+            ContentBlock::ServerToolUse { id, name, .. } => {
+                assert_eq!(id, "stu_1");
+                assert_eq!(name, "web_search");
+            }
+            _ => panic!("Expected ServerToolUse variant"),
         }
     }
 }
