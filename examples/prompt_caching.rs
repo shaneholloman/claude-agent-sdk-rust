@@ -50,6 +50,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         disable_user_input: Some(true),
         input_examples: None,
         cache_control: None, // Will be set by with_cached_tool()
+        defer_loading: None,
+        eager_input_streaming: None,
+        strict: None,
     };
 
     let read_file_tool = CustomTool {
@@ -68,6 +71,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         disable_user_input: Some(true),
         input_examples: None,
         cache_control: None,
+        defer_loading: None,
+        eager_input_streaming: None,
+        strict: None,
     };
 
     // Build conversation with cached system and tools

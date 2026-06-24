@@ -365,6 +365,9 @@ mod tests {
             disable_user_input: None,
             input_examples: None,
             cache_control: None,
+            defer_loading: None,
+            eager_input_streaming: None,
+            strict: None,
         };
 
         let tokens = counter.count_custom_tool(&tool);

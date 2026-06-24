@@ -71,6 +71,9 @@
 //!     disable_user_input: Some(true),
 //!     input_examples: None,
 //!     cache_control: None,
+//!     defer_loading: None,
+//!     eager_input_streaming: None,
+//!     strict: None,
 //! };
 //!
 //! let mut conversation = ConversationBuilder::new()
@@ -128,6 +131,9 @@
 //!     disable_user_input: Some(true),
 //!     input_examples: None,
 //!     cache_control: None,
+//!     defer_loading: None,
+//!     eager_input_streaming: None,
+//!     strict: None,
 //! };
 //!
 //! let conversation = ConversationBuilder::new()
@@ -258,6 +264,9 @@ impl ConversationBuilder {
     ///     disable_user_input: Some(true),
     ///     input_examples: None,
     ///     cache_control: None,
+    ///     defer_loading: None,
+    ///     eager_input_streaming: None,
+    ///     strict: None,
     /// };
     ///
     /// let conversation = ConversationBuilder::new()
@@ -519,6 +528,9 @@ mod tests {
             disable_user_input: None,
             input_examples: None,
             cache_control: None,
+            defer_loading: None,
+            eager_input_streaming: None,
+            strict: None,
         };
 
         let conv = ConversationBuilder::new().with_tool(tool);

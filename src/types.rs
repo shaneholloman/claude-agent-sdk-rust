@@ -597,6 +597,9 @@ pub struct SystemBlock {
 ///     disable_user_input: Some(true),
 ///     input_examples: None,
 ///     cache_control: None,
+///     defer_loading: None,
+///     eager_input_streaming: None,
+///     strict: None,
 /// };
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -619,6 +622,18 @@ pub struct CustomTool {
     /// Cache control for this tool definition
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_control: Option<CacheControl>,
+
+    /// Defer loading this tool until needed
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub defer_loading: Option<bool>,
+
+    /// Stream tool inputs as they're generated
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub eager_input_streaming: Option<bool>,
+
+    /// Enable strict JSON schema validation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub strict: Option<bool>,
 }
 
 /// Renamed to [`CustomTool`] in v2.0. Use `CustomTool` directly.
@@ -651,6 +666,9 @@ pub type Tool = CustomTool;
 ///     disable_user_input: None,
 ///     input_examples: None,
 ///     cache_control: None,
+///     defer_loading: None,
+///     eager_input_streaming: None,
+///     strict: None,
 /// });
 ///
 /// // Server tool (raw JSON)
@@ -1048,6 +1066,9 @@ impl MessagesRequest {
     ///     disable_user_input: Some(true),
     ///     input_examples: None,
     ///     cache_control: None,
+    ///     defer_loading: None,
+    ///     eager_input_streaming: None,
+    ///     strict: None,
     /// });
     ///
     /// let request = MessagesRequest::new(
@@ -1079,6 +1100,9 @@ impl MessagesRequest {
     ///     disable_user_input: None,
     ///     input_examples: None,
     ///     cache_control: None,
+    ///     defer_loading: None,
+    ///     eager_input_streaming: None,
+    ///     strict: None,
     /// };
     ///
     /// let request = MessagesRequest::new(
@@ -1425,11 +1449,33 @@ mod tests {
             disable_user_input: Some(true),
             input_examples: None,
             cache_control: Some(CacheControl::ephemeral()),
+            defer_loading: None,
+            eager_input_streaming: None,
+            strict: None,
         };
 
         let json = serde_json::to_value(&tool).unwrap();
         assert_eq!(json["name"], "test");
         assert_eq!(json["cache_control"]["type"], "ephemeral");
+    }
+
+    #[test]
+    fn test_custom_tool_with_new_fields() {
+        let tool = CustomTool {
+            name: "test".into(),
+            description: "test".into(),
+            input_schema: serde_json::json!({"type": "object"}),
+            disable_user_input: None,
+            input_examples: None,
+            cache_control: None,
+            defer_loading: Some(true),
+            eager_input_streaming: Some(true),
+            strict: Some(true),
+        };
+        let json = serde_json::to_value(&tool).unwrap();
+        assert_eq!(json["defer_loading"], true);
+        assert_eq!(json["eager_input_streaming"], true);
+        assert_eq!(json["strict"], true);
     }
 
     #[test]

@@ -45,6 +45,9 @@ pub fn json_schema_tool(
         disable_user_input: Some(true),
         input_examples: None,
         cache_control: None,
+        defer_loading: None,
+        eager_input_streaming: None,
+        strict: None,
     }
 }
 

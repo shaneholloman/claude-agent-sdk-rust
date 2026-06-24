@@ -53,6 +53,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         disable_user_input: Some(true), // Programmatic tool calling
         input_examples: None,
         cache_control: None,
+        defer_loading: None,
+        eager_input_streaming: None,
+        strict: None,
     };
 
     let calculate_tool = CustomTool {
@@ -71,6 +74,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         disable_user_input: Some(true),
         input_examples: None,
         cache_control: None,
+        defer_loading: None,
+        eager_input_streaming: None,
+        strict: None,
     };
 
     // Build conversation with tools
