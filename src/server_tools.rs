@@ -326,6 +326,189 @@ impl Default for TextEditorTool {
     }
 }
 
+/// Memory tool for persistent memory across conversations
+///
+/// # Example
+///
+/// ```rust
+/// use claude_sdk::server_tools::MemoryTool;
+///
+/// let tool = MemoryTool::new();
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryTool {
+    /// Tool version: `"memory_20250818"`
+    #[serde(rename = "type")]
+    pub tool_type: String,
+
+    /// Always `"memory"`
+    pub name: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_control: Option<CacheControl>,
+}
+
+impl MemoryTool {
+    /// Create a new MemoryTool.
+    pub fn new() -> Self {
+        Self {
+            tool_type: "memory_20250818".into(),
+            name: "memory".into(),
+            cache_control: None,
+        }
+    }
+}
+
+impl Default for MemoryTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// BM25-based tool search for large tool sets
+///
+/// # Example
+///
+/// ```rust
+/// use claude_sdk::server_tools::ToolSearchBm25;
+///
+/// let tool = ToolSearchBm25::new();
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolSearchBm25 {
+    /// Tool version: `"tool_search_tool_bm25_20251119"`
+    #[serde(rename = "type")]
+    pub tool_type: String,
+
+    /// Always `"tool_search_tool_bm25"`
+    pub name: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_control: Option<CacheControl>,
+}
+
+impl ToolSearchBm25 {
+    /// Create a new ToolSearchBm25.
+    pub fn new() -> Self {
+        Self {
+            tool_type: "tool_search_tool_bm25_20251119".into(),
+            name: "tool_search_tool_bm25".into(),
+            cache_control: None,
+        }
+    }
+}
+
+impl Default for ToolSearchBm25 {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Regex-based tool search for large tool sets
+///
+/// # Example
+///
+/// ```rust
+/// use claude_sdk::server_tools::ToolSearchRegex;
+///
+/// let tool = ToolSearchRegex::new();
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolSearchRegex {
+    /// Tool version: `"tool_search_tool_regex_20251119"`
+    #[serde(rename = "type")]
+    pub tool_type: String,
+
+    /// Always `"tool_search_tool_regex"`
+    pub name: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_control: Option<CacheControl>,
+}
+
+impl ToolSearchRegex {
+    /// Create a new ToolSearchRegex.
+    pub fn new() -> Self {
+        Self {
+            tool_type: "tool_search_tool_regex_20251119".into(),
+            name: "tool_search_tool_regex".into(),
+            cache_control: None,
+        }
+    }
+}
+
+impl Default for ToolSearchRegex {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// --- From impls for ToolDefinition ---
+
+impl From<WebSearchTool> for crate::types::ToolDefinition {
+    fn from(tool: WebSearchTool) -> crate::types::ToolDefinition {
+        crate::types::ToolDefinition::Server(
+            serde_json::to_value(tool).expect("Failed to serialize WebSearchTool"),
+        )
+    }
+}
+
+impl From<WebFetchTool> for crate::types::ToolDefinition {
+    fn from(tool: WebFetchTool) -> crate::types::ToolDefinition {
+        crate::types::ToolDefinition::Server(
+            serde_json::to_value(tool).expect("Failed to serialize WebFetchTool"),
+        )
+    }
+}
+
+impl From<CodeExecutionTool> for crate::types::ToolDefinition {
+    fn from(tool: CodeExecutionTool) -> crate::types::ToolDefinition {
+        crate::types::ToolDefinition::Server(
+            serde_json::to_value(tool).expect("Failed to serialize CodeExecutionTool"),
+        )
+    }
+}
+
+impl From<BashTool> for crate::types::ToolDefinition {
+    fn from(tool: BashTool) -> crate::types::ToolDefinition {
+        crate::types::ToolDefinition::Server(
+            serde_json::to_value(tool).expect("Failed to serialize BashTool"),
+        )
+    }
+}
+
+impl From<TextEditorTool> for crate::types::ToolDefinition {
+    fn from(tool: TextEditorTool) -> crate::types::ToolDefinition {
+        crate::types::ToolDefinition::Server(
+            serde_json::to_value(tool).expect("Failed to serialize TextEditorTool"),
+        )
+    }
+}
+
+impl From<MemoryTool> for crate::types::ToolDefinition {
+    fn from(tool: MemoryTool) -> crate::types::ToolDefinition {
+        crate::types::ToolDefinition::Server(
+            serde_json::to_value(tool).expect("Failed to serialize MemoryTool"),
+        )
+    }
+}
+
+impl From<ToolSearchBm25> for crate::types::ToolDefinition {
+    fn from(tool: ToolSearchBm25) -> crate::types::ToolDefinition {
+        crate::types::ToolDefinition::Server(
+            serde_json::to_value(tool).expect("Failed to serialize ToolSearchBm25"),
+        )
+    }
+}
+
+impl From<ToolSearchRegex> for crate::types::ToolDefinition {
+    fn from(tool: ToolSearchRegex) -> crate::types::ToolDefinition {
+        crate::types::ToolDefinition::Server(
+            serde_json::to_value(tool).expect("Failed to serialize ToolSearchRegex"),
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -546,5 +729,35 @@ mod tests {
         let deserialized: TextEditorTool = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.tool_type, "text_editor_20250728");
         assert_eq!(deserialized.name, "str_replace_editor");
+    }
+
+    // --- MemoryTool ---
+
+    #[test]
+    fn test_memory_tool_serialization() {
+        let tool = MemoryTool::new();
+        let json = serde_json::to_value(&tool).unwrap();
+        assert_eq!(json["type"], "memory_20250818");
+        assert_eq!(json["name"], "memory");
+    }
+
+    // --- ToolSearchBm25 ---
+
+    #[test]
+    fn test_tool_search_bm25_serialization() {
+        let tool = ToolSearchBm25::new();
+        let json = serde_json::to_value(&tool).unwrap();
+        assert_eq!(json["type"], "tool_search_tool_bm25_20251119");
+        assert_eq!(json["name"], "tool_search_tool_bm25");
+    }
+
+    // --- ToolSearchRegex ---
+
+    #[test]
+    fn test_tool_search_regex_serialization() {
+        let tool = ToolSearchRegex::new();
+        let json = serde_json::to_value(&tool).unwrap();
+        assert_eq!(json["type"], "tool_search_tool_regex_20251119");
+        assert_eq!(json["name"], "tool_search_tool_regex");
     }
 }

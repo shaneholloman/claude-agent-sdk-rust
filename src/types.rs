@@ -28,6 +28,15 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Container metadata in API response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Container {
+    /// Container ID for reuse
+    pub id: String,
+    /// When the container expires (ISO 8601)
+    pub expires_at: String,
+}
+
 /// Role in a conversation
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -140,6 +149,18 @@ pub enum ContentBlock {
         #[serde(skip_serializing_if = "Option::is_none")]
         cache_control: Option<CacheControl>,
     },
+    /// File uploaded to a container during code execution
+    ContainerUpload {
+        file_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cache_control: Option<CacheControl>,
+    },
+    /// System instruction injected mid-conversation
+    MidConvSystem {
+        content: Vec<TextBlock>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cache_control: Option<CacheControl>,
+    },
     /// Unknown content block type (forward compatibility)
     ///
     /// When the API returns a content block type this SDK doesn't
@@ -228,6 +249,14 @@ enum ContentBlockHelper {
     CodeExecutionToolResult {
         tool_use_id: String,
         content: serde_json::Value,
+        cache_control: Option<CacheControl>,
+    },
+    ContainerUpload {
+        file_id: String,
+        cache_control: Option<CacheControl>,
+    },
+    MidConvSystem {
+        content: Vec<TextBlock>,
         cache_control: Option<CacheControl>,
     },
 }
@@ -342,6 +371,20 @@ impl<'de> serde::Deserialize<'de> for ContentBlock {
                     cache_control,
                 } => ContentBlock::CodeExecutionToolResult {
                     tool_use_id,
+                    content,
+                    cache_control,
+                },
+                ContentBlockHelper::ContainerUpload {
+                    file_id,
+                    cache_control,
+                } => ContentBlock::ContainerUpload {
+                    file_id,
+                    cache_control,
+                },
+                ContentBlockHelper::MidConvSystem {
+                    content,
+                    cache_control,
+                } => ContentBlock::MidConvSystem {
                     content,
                     cache_control,
                 },
@@ -541,20 +584,18 @@ pub struct SystemBlock {
 /// use claude_sdk::CustomTool;
 /// use serde_json::json;
 ///
-/// let tool = CustomTool {
-///     name: "get_weather".into(),
-///     description: "Get weather for a location".into(),
-///     input_schema: json!({
+/// let tool = CustomTool::new(
+///     "get_weather",
+///     "Get weather for a location",
+///     json!({
 ///         "type": "object",
 ///         "properties": {
 ///             "location": { "type": "string" }
 ///         },
 ///         "required": ["location"]
 ///     }),
-///     disable_user_input: Some(true),
-///     input_examples: None,
-///     cache_control: None,
-/// };
+/// )
+/// .programmatic();
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CustomTool {
@@ -576,6 +617,51 @@ pub struct CustomTool {
     /// Cache control for this tool definition
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_control: Option<CacheControl>,
+
+    /// Defer loading this tool until needed
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub defer_loading: Option<bool>,
+
+    /// Stream tool inputs as they're generated
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub eager_input_streaming: Option<bool>,
+
+    /// Enable strict JSON schema validation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub strict: Option<bool>,
+}
+
+impl CustomTool {
+    /// Create a new custom tool definition
+    pub fn new(
+        name: impl Into<String>,
+        description: impl Into<String>,
+        input_schema: serde_json::Value,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            description: description.into(),
+            input_schema,
+            disable_user_input: None,
+            input_examples: None,
+            cache_control: None,
+            defer_loading: None,
+            eager_input_streaming: None,
+            strict: None,
+        }
+    }
+
+    /// Set programmatic tool calling (no user confirmation)
+    pub fn programmatic(mut self) -> Self {
+        self.disable_user_input = Some(true);
+        self
+    }
+
+    /// Enable strict JSON schema validation
+    pub fn with_strict(mut self) -> Self {
+        self.strict = Some(true);
+        self
+    }
 }
 
 /// Renamed to [`CustomTool`] in v2.0. Use `CustomTool` directly.
@@ -601,14 +687,9 @@ pub type Tool = CustomTool;
 /// use serde_json::json;
 ///
 /// // Custom tool
-/// let custom = ToolDefinition::Custom(CustomTool {
-///     name: "my_tool".into(),
-///     description: "A custom tool".into(),
-///     input_schema: json!({"type": "object"}),
-///     disable_user_input: None,
-///     input_examples: None,
-///     cache_control: None,
-/// });
+/// let custom = ToolDefinition::Custom(
+///     CustomTool::new("my_tool", "A custom tool", json!({"type": "object"}))
+/// );
 ///
 /// // Server tool (raw JSON)
 /// let server = ToolDefinition::Server(json!({
@@ -824,6 +905,10 @@ pub struct MessagesRequest {
     /// Geographic inference routing
     #[serde(skip_serializing_if = "Option::is_none")]
     pub inference_geo: Option<String>,
+
+    /// Container ID for persistent code execution
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub container: Option<String>,
 }
 
 /// Extended thinking configuration
@@ -951,6 +1036,7 @@ impl MessagesRequest {
             metadata: None,
             service_tier: None,
             inference_geo: None,
+            container: None,
         }
     }
 
@@ -985,22 +1071,22 @@ impl MessagesRequest {
     /// use claude_sdk::{MessagesRequest, Message, CustomTool, ToolDefinition};
     /// use serde_json::json;
     ///
-    /// let calculator = ToolDefinition::Custom(CustomTool {
-    ///     name: "calculator".into(),
-    ///     description: "Perform basic arithmetic operations".into(),
-    ///     input_schema: json!({
-    ///         "type": "object",
-    ///         "properties": {
-    ///             "operation": { "type": "string", "enum": ["add", "subtract", "multiply", "divide"] },
-    ///             "a": { "type": "number" },
-    ///             "b": { "type": "number" }
-    ///         },
-    ///         "required": ["operation", "a", "b"]
-    ///     }),
-    ///     disable_user_input: Some(true),
-    ///     input_examples: None,
-    ///     cache_control: None,
-    /// });
+    /// let calculator = ToolDefinition::Custom(
+    ///     CustomTool::new(
+    ///         "calculator",
+    ///         "Perform basic arithmetic operations",
+    ///         json!({
+    ///             "type": "object",
+    ///             "properties": {
+    ///                 "operation": { "type": "string", "enum": ["add", "subtract", "multiply", "divide"] },
+    ///                 "a": { "type": "number" },
+    ///                 "b": { "type": "number" }
+    ///             },
+    ///             "required": ["operation", "a", "b"]
+    ///         }),
+    ///     )
+    ///     .programmatic()
+    /// );
     ///
     /// let request = MessagesRequest::new(
     ///     "claude-sonnet-4-5-20250929",
@@ -1024,14 +1110,7 @@ impl MessagesRequest {
     /// use claude_sdk::{MessagesRequest, Message, CustomTool};
     /// use serde_json::json;
     ///
-    /// let tool = CustomTool {
-    ///     name: "my_tool".into(),
-    ///     description: "A tool".into(),
-    ///     input_schema: json!({"type": "object"}),
-    ///     disable_user_input: None,
-    ///     input_examples: None,
-    ///     cache_control: None,
-    /// };
+    /// let tool = CustomTool::new("my_tool", "A tool", json!({"type": "object"}));
     ///
     /// let request = MessagesRequest::new(
     ///     "claude-sonnet-4-5-20250929",
@@ -1207,6 +1286,12 @@ impl MessagesRequest {
         self.inference_geo = Some(geo.into());
         self
     }
+
+    /// Set container ID for persistent code execution state
+    pub fn with_container(mut self, container_id: impl Into<String>) -> Self {
+        self.container = Some(container_id.into());
+        self
+    }
 }
 
 /// Response from the token counting endpoint
@@ -1293,6 +1378,10 @@ pub struct MessagesResponse {
 
     pub usage: Usage,
 
+    /// Container metadata (present when code execution used a container)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub container: Option<Container>,
+
     /// Rate limit info from response headers (not part of JSON body)
     #[serde(skip)]
     pub rate_limit_info: Option<RateLimitInfo>,
@@ -1360,18 +1449,25 @@ mod tests {
 
     #[test]
     fn test_tool_with_cache() {
-        let tool = CustomTool {
-            name: "test".into(),
-            description: "test tool".into(),
-            input_schema: serde_json::json!({"type": "object"}),
-            disable_user_input: Some(true),
-            input_examples: None,
-            cache_control: Some(CacheControl::ephemeral()),
-        };
+        let mut tool = CustomTool::new("test", "test tool", serde_json::json!({"type": "object"}))
+            .programmatic();
+        tool.cache_control = Some(CacheControl::ephemeral());
 
         let json = serde_json::to_value(&tool).unwrap();
         assert_eq!(json["name"], "test");
         assert_eq!(json["cache_control"]["type"], "ephemeral");
+    }
+
+    #[test]
+    fn test_custom_tool_with_new_fields() {
+        let mut tool =
+            CustomTool::new("test", "test", serde_json::json!({"type": "object"})).with_strict();
+        tool.defer_loading = Some(true);
+        tool.eager_input_streaming = Some(true);
+        let json = serde_json::to_value(&tool).unwrap();
+        assert_eq!(json["defer_loading"], true);
+        assert_eq!(json["eager_input_streaming"], true);
+        assert_eq!(json["strict"], true);
     }
 
     #[test]
@@ -1863,6 +1959,62 @@ mod tests {
         };
         let json = serde_json::to_value(&block).unwrap();
         assert!(json.get("caller").is_none());
+    }
+
+    #[test]
+    fn test_container_request_serialization() {
+        let request = MessagesRequest::new(
+            "claude-sonnet-4-5-20250929",
+            1024,
+            vec![Message::user("Hello")],
+        )
+        .with_container("container_123");
+        let json = serde_json::to_value(&request).unwrap();
+        assert_eq!(json["container"], "container_123");
+    }
+
+    #[test]
+    fn test_container_response_deserialization() {
+        let json = r#"{
+            "id": "msg_1",
+            "type": "message",
+            "role": "assistant",
+            "content": [],
+            "model": "claude-sonnet-4-5-20250929",
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+            "container": {"id": "ctr_abc", "expires_at": "2026-01-01T00:00:00Z"}
+        }"#;
+        let response: MessagesResponse = serde_json::from_str(json).unwrap();
+        let container = response.container.unwrap();
+        assert_eq!(container.id, "ctr_abc");
+    }
+
+    #[test]
+    fn test_container_upload_deserialization() {
+        let json = r#"{"type": "container_upload", "file_id": "file_123"}"#;
+        let block: ContentBlock = serde_json::from_str(json).unwrap();
+        match block {
+            ContentBlock::ContainerUpload { file_id, .. } => {
+                assert_eq!(file_id, "file_123");
+            }
+            _ => panic!("Expected ContainerUpload"),
+        }
+    }
+
+    #[test]
+    fn test_mid_conv_system_deserialization() {
+        let json = r#"{
+            "type": "mid_conv_system",
+            "content": [{"type": "text", "text": "New instruction"}]
+        }"#;
+        let block: ContentBlock = serde_json::from_str(json).unwrap();
+        match block {
+            ContentBlock::MidConvSystem { content, .. } => {
+                assert_eq!(content[0].text, "New instruction");
+            }
+            _ => panic!("Expected MidConvSystem"),
+        }
     }
 
     #[test]

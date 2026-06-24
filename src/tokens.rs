@@ -155,6 +155,8 @@ impl TokenCounter {
             ContentBlock::ServerToolUse { .. } => 0,
             ContentBlock::WebSearchToolResult { .. } => 0,
             ContentBlock::CodeExecutionToolResult { .. } => 0,
+            ContentBlock::ContainerUpload { .. } => 0,
+            ContentBlock::MidConvSystem { .. } => 0,
             ContentBlock::Unknown { .. } => 0,
         }
     }
@@ -356,14 +358,11 @@ mod tests {
     fn test_count_tool() {
         let counter = TokenCounter::new();
 
-        let tool = CustomTool {
-            name: "get_weather".into(),
-            description: "Get the current weather".into(),
-            input_schema: json!({"type": "object"}),
-            disable_user_input: None,
-            input_examples: None,
-            cache_control: None,
-        };
+        let tool = CustomTool::new(
+            "get_weather",
+            "Get the current weather",
+            json!({"type": "object"}),
+        );
 
         let tokens = counter.count_custom_tool(&tool);
         assert!(tokens > 10); // Should include overhead + content

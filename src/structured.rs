@@ -38,14 +38,7 @@ pub fn json_schema_tool(
     description: impl Into<String>,
     schema: Value,
 ) -> CustomTool {
-    CustomTool {
-        name: name.into(),
-        description: description.into(),
-        input_schema: schema,
-        disable_user_input: Some(true),
-        input_examples: None,
-        cache_control: None,
-    }
+    CustomTool::new(name, description, schema).programmatic()
 }
 
 /// Create a forced tool choice for structured outputs

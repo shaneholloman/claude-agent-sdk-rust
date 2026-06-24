@@ -116,20 +116,18 @@
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let client = ClaudeClient::anthropic(std::env::var("ANTHROPIC_API_KEY")?);
 //!
-//! let weather_tool = CustomTool {
-//!     name: "get_weather".into(),
-//!     description: "Get weather for a location".into(),
-//!     input_schema: json!({
+//! let weather_tool = CustomTool::new(
+//!     "get_weather",
+//!     "Get weather for a location",
+//!     json!({
 //!         "type": "object",
 //!         "properties": {
 //!             "location": { "type": "string" }
 //!         },
 //!         "required": ["location"]
 //!     }),
-//!     disable_user_input: Some(true),
-//!     input_examples: None,
-//!     cache_control: None,
-//! };
+//! )
+//! .programmatic();
 //!
 //! let request = MessagesRequest::new(
 //!     "claude-sonnet-4-5-20250929",
@@ -249,8 +247,8 @@ pub use models::{BedrockRegion, Model};
 pub use streaming::{ContentDelta, MessageDelta, StreamEvent};
 #[allow(deprecated)]
 pub use types::{
-    CacheTtl, ContentBlock, CustomTool, EffortLevel, Message, MessagesRequest, MessagesResponse,
-    Metadata, OutputConfig, OutputFormat, OutputTokensDetails, RateLimitInfo, RefusalCategory,
-    Role, ServerToolUsage, ServiceTier, StopDetails, StopReason, ThinkingConfig, ThinkingDisplay,
-    TokenCount, Tool, ToolChoice, ToolDefinition, ToolResultContent, Usage,
+    CacheTtl, Container, ContentBlock, CustomTool, EffortLevel, Message, MessagesRequest,
+    MessagesResponse, Metadata, OutputConfig, OutputFormat, OutputTokensDetails, RateLimitInfo,
+    RefusalCategory, Role, ServerToolUsage, ServiceTier, StopDetails, StopReason, ThinkingConfig,
+    ThinkingDisplay, TokenCount, Tool, ToolChoice, ToolDefinition, ToolResultContent, Usage,
 };

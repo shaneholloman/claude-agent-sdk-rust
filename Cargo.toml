@@ -1,6 +1,6 @@
 [package]
 name = "claude-sdk"
-version = "2.0.0"
+version = "2.1.0"
 edition = "2021"
 authors = ["Claude Agent SDK Contributors"]
 description = "Native Rust SDK for the Claude API with streaming support and tool execution"
@@ -92,6 +92,14 @@ path = "examples/tool_use.rs"
 [[example]]
 name = "prompt_caching"
 path = "examples/prompt_caching.rs"
+
+[[example]]
+name = "server_tools"
+path = "examples/server_tools.rs"
+
+[[example]]
+name = "structured_output"
+path = "examples/structured_output.rs"
 
 [[bin]]
 name = "update-changelog"
