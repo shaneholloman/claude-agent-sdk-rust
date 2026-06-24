@@ -93,6 +93,14 @@ path = "examples/tool_use.rs"
 name = "prompt_caching"
 path = "examples/prompt_caching.rs"
 
+[[example]]
+name = "server_tools"
+path = "examples/server_tools.rs"
+
+[[example]]
+name = "structured_output"
+path = "examples/structured_output.rs"
+
 [[bin]]
 name = "update-changelog"
 path = "src/bin/update-changelog.rs"

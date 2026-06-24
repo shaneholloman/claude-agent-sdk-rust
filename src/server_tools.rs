@@ -443,6 +443,72 @@ impl Default for ToolSearchRegex {
     }
 }
 
+// --- From impls for ToolDefinition ---
+
+impl From<WebSearchTool> for crate::types::ToolDefinition {
+    fn from(tool: WebSearchTool) -> crate::types::ToolDefinition {
+        crate::types::ToolDefinition::Server(
+            serde_json::to_value(tool).expect("Failed to serialize WebSearchTool"),
+        )
+    }
+}
+
+impl From<WebFetchTool> for crate::types::ToolDefinition {
+    fn from(tool: WebFetchTool) -> crate::types::ToolDefinition {
+        crate::types::ToolDefinition::Server(
+            serde_json::to_value(tool).expect("Failed to serialize WebFetchTool"),
+        )
+    }
+}
+
+impl From<CodeExecutionTool> for crate::types::ToolDefinition {
+    fn from(tool: CodeExecutionTool) -> crate::types::ToolDefinition {
+        crate::types::ToolDefinition::Server(
+            serde_json::to_value(tool).expect("Failed to serialize CodeExecutionTool"),
+        )
+    }
+}
+
+impl From<BashTool> for crate::types::ToolDefinition {
+    fn from(tool: BashTool) -> crate::types::ToolDefinition {
+        crate::types::ToolDefinition::Server(
+            serde_json::to_value(tool).expect("Failed to serialize BashTool"),
+        )
+    }
+}
+
+impl From<TextEditorTool> for crate::types::ToolDefinition {
+    fn from(tool: TextEditorTool) -> crate::types::ToolDefinition {
+        crate::types::ToolDefinition::Server(
+            serde_json::to_value(tool).expect("Failed to serialize TextEditorTool"),
+        )
+    }
+}
+
+impl From<MemoryTool> for crate::types::ToolDefinition {
+    fn from(tool: MemoryTool) -> crate::types::ToolDefinition {
+        crate::types::ToolDefinition::Server(
+            serde_json::to_value(tool).expect("Failed to serialize MemoryTool"),
+        )
+    }
+}
+
+impl From<ToolSearchBm25> for crate::types::ToolDefinition {
+    fn from(tool: ToolSearchBm25) -> crate::types::ToolDefinition {
+        crate::types::ToolDefinition::Server(
+            serde_json::to_value(tool).expect("Failed to serialize ToolSearchBm25"),
+        )
+    }
+}
+
+impl From<ToolSearchRegex> for crate::types::ToolDefinition {
+    fn from(tool: ToolSearchRegex) -> crate::types::ToolDefinition {
+        crate::types::ToolDefinition::Server(
+            serde_json::to_value(tool).expect("Failed to serialize ToolSearchRegex"),
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
