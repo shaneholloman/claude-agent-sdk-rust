@@ -155,6 +155,8 @@ impl TokenCounter {
             ContentBlock::ServerToolUse { .. } => 0,
             ContentBlock::WebSearchToolResult { .. } => 0,
             ContentBlock::CodeExecutionToolResult { .. } => 0,
+            ContentBlock::ContainerUpload { .. } => 0,
+            ContentBlock::MidConvSystem { .. } => 0,
             ContentBlock::Unknown { .. } => 0,
         }
     }

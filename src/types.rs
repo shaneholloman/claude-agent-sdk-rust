@@ -28,6 +28,15 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Container metadata in API response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Container {
+    /// Container ID for reuse
+    pub id: String,
+    /// When the container expires (ISO 8601)
+    pub expires_at: String,
+}
+
 /// Role in a conversation
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -140,6 +149,18 @@ pub enum ContentBlock {
         #[serde(skip_serializing_if = "Option::is_none")]
         cache_control: Option<CacheControl>,
     },
+    /// File uploaded to a container during code execution
+    ContainerUpload {
+        file_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cache_control: Option<CacheControl>,
+    },
+    /// System instruction injected mid-conversation
+    MidConvSystem {
+        content: Vec<TextBlock>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cache_control: Option<CacheControl>,
+    },
     /// Unknown content block type (forward compatibility)
     ///
     /// When the API returns a content block type this SDK doesn't
@@ -228,6 +249,14 @@ enum ContentBlockHelper {
     CodeExecutionToolResult {
         tool_use_id: String,
         content: serde_json::Value,
+        cache_control: Option<CacheControl>,
+    },
+    ContainerUpload {
+        file_id: String,
+        cache_control: Option<CacheControl>,
+    },
+    MidConvSystem {
+        content: Vec<TextBlock>,
         cache_control: Option<CacheControl>,
     },
 }
@@ -342,6 +371,20 @@ impl<'de> serde::Deserialize<'de> for ContentBlock {
                     cache_control,
                 } => ContentBlock::CodeExecutionToolResult {
                     tool_use_id,
+                    content,
+                    cache_control,
+                },
+                ContentBlockHelper::ContainerUpload {
+                    file_id,
+                    cache_control,
+                } => ContentBlock::ContainerUpload {
+                    file_id,
+                    cache_control,
+                },
+                ContentBlockHelper::MidConvSystem {
+                    content,
+                    cache_control,
+                } => ContentBlock::MidConvSystem {
                     content,
                     cache_control,
                 },
@@ -824,6 +867,10 @@ pub struct MessagesRequest {
     /// Geographic inference routing
     #[serde(skip_serializing_if = "Option::is_none")]
     pub inference_geo: Option<String>,
+
+    /// Container ID for persistent code execution
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub container: Option<String>,
 }
 
 /// Extended thinking configuration
@@ -951,6 +998,7 @@ impl MessagesRequest {
             metadata: None,
             service_tier: None,
             inference_geo: None,
+            container: None,
         }
     }
 
@@ -1207,6 +1255,12 @@ impl MessagesRequest {
         self.inference_geo = Some(geo.into());
         self
     }
+
+    /// Set container ID for persistent code execution state
+    pub fn with_container(mut self, container_id: impl Into<String>) -> Self {
+        self.container = Some(container_id.into());
+        self
+    }
 }
 
 /// Response from the token counting endpoint
@@ -1292,6 +1346,10 @@ pub struct MessagesResponse {
     pub stop_details: Option<StopDetails>,
 
     pub usage: Usage,
+
+    /// Container metadata (present when code execution used a container)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub container: Option<Container>,
 
     /// Rate limit info from response headers (not part of JSON body)
     #[serde(skip)]
@@ -1863,6 +1921,62 @@ mod tests {
         };
         let json = serde_json::to_value(&block).unwrap();
         assert!(json.get("caller").is_none());
+    }
+
+    #[test]
+    fn test_container_request_serialization() {
+        let request = MessagesRequest::new(
+            "claude-sonnet-4-5-20250929",
+            1024,
+            vec![Message::user("Hello")],
+        )
+        .with_container("container_123");
+        let json = serde_json::to_value(&request).unwrap();
+        assert_eq!(json["container"], "container_123");
+    }
+
+    #[test]
+    fn test_container_response_deserialization() {
+        let json = r#"{
+            "id": "msg_1",
+            "type": "message",
+            "role": "assistant",
+            "content": [],
+            "model": "claude-sonnet-4-5-20250929",
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+            "container": {"id": "ctr_abc", "expires_at": "2026-01-01T00:00:00Z"}
+        }"#;
+        let response: MessagesResponse = serde_json::from_str(json).unwrap();
+        let container = response.container.unwrap();
+        assert_eq!(container.id, "ctr_abc");
+    }
+
+    #[test]
+    fn test_container_upload_deserialization() {
+        let json = r#"{"type": "container_upload", "file_id": "file_123"}"#;
+        let block: ContentBlock = serde_json::from_str(json).unwrap();
+        match block {
+            ContentBlock::ContainerUpload { file_id, .. } => {
+                assert_eq!(file_id, "file_123");
+            }
+            _ => panic!("Expected ContainerUpload"),
+        }
+    }
+
+    #[test]
+    fn test_mid_conv_system_deserialization() {
+        let json = r#"{
+            "type": "mid_conv_system",
+            "content": [{"type": "text", "text": "New instruction"}]
+        }"#;
+        let block: ContentBlock = serde_json::from_str(json).unwrap();
+        match block {
+            ContentBlock::MidConvSystem { content, .. } => {
+                assert_eq!(content[0].text, "New instruction");
+            }
+            _ => panic!("Expected MidConvSystem"),
+        }
     }
 
     #[test]
